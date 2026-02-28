@@ -1,0 +1,594 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Report Copilot</title>
+    <style>
+      :root {
+        --bg-0: #f4f2ed;
+        --bg-1: #e8efe7;
+        --ink: #1a2430;
+        --ink-soft: #566273;
+        --line: #cfd9df;
+        --card: #fcfcfb;
+        --accent: #0f766e;
+        --accent-2: #155e75;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(1100px 500px at -20% -10%, #d9efe8 0%, transparent 60%),
+          radial-gradient(900px 500px at 120% 0%, #d8e7f4 0%, transparent 62%),
+          linear-gradient(180deg, var(--bg-0), var(--bg-1));
+        min-height: 100vh;
+      }
+      .wrap { max-width: 980px; margin: 38px auto 64px; padding: 0 16px; animation: fade-in .45s ease; }
+      .hero { margin-bottom: 16px; }
+      .kicker {
+        display: inline-block;
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--accent-2);
+        padding: 4px 10px;
+        border: 1px solid #b7d7d4;
+        border-radius: 999px;
+        background: #ebf8f6;
+      }
+      h1 { margin: 10px 0 8px; font-size: clamp(30px, 5vw, 44px); line-height: 1.03; }
+      .sub { color: var(--ink-soft); margin: 0; max-width: 66ch; }
+      .runtime-banner {
+        margin-top: 12px;
+        font-size: 13px;
+        color: #234056;
+        background: #eaf3fa;
+        border: 1px solid #c9dceb;
+        border-radius: 12px;
+        padding: 10px 12px;
+        white-space: pre-wrap;
+      }
+      .recent {
+        margin-top: 18px;
+        border: 1px solid #dbe4ea;
+        border-radius: 14px;
+        background: #fbfdfd;
+        padding: 12px;
+      }
+      .recent h3 { margin: 0 0 10px; font-size: 14px; }
+      .jobs-grid { display: grid; gap: 10px; max-height: 280px; overflow: auto; padding-right: 4px; }
+      .recent-controls { margin-top: 8px; display:flex; align-items:center; gap:8px; }
+      .recent-controls label { margin:0; font-weight: 700; font-size: 12px; color:#2b475d; display:flex; gap:6px; align-items:center; }
+      .recent summary {
+        cursor: pointer;
+        font-weight: 800;
+        color: #1f3344;
+        list-style: none;
+      }
+      .recent summary::-webkit-details-marker { display: none; }
+      .recent summary::before {
+        content: "▸";
+        display: inline-block;
+        margin-right: 8px;
+        transition: transform .15s ease;
+      }
+      .recent[open] summary::before { transform: rotate(90deg); }
+      .job-card {
+        border: 1px solid #dbe4ea;
+        border-radius: 12px;
+        padding: 10px;
+        background: #fff;
+      }
+      .job-top { display:flex; gap:8px; flex-wrap: wrap; align-items:center; justify-content: space-between; }
+      .job-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #25485f; }
+      .job-meta { color:#5a6e7e; font-size:12px; margin-top:6px; }
+      .pill-sm {
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid #c7d7ef;
+        background: #eef4ff;
+        color: #1f3f72;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .pill-sm.done { background:#e8f7ef; border-color:#b9e4cc; color:#155b3e; }
+      .pill-sm.running { background:#edf8f5; border-color:#bcded8; color:#144e4b; }
+      .pill-sm.failed { background:#fdeced; border-color:#f1c5cb; color:#8f1f2f; }
+      .pill-sm.canceled { background:#fff3e5; border-color:#f1d5b5; color:#7a4312; }
+      .job-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+      .job-actions a, .job-actions button {
+        border: 1px solid #cbd6df;
+        background: #f7fafc;
+        color: #234156;
+        padding: 6px 9px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .job-actions button[disabled] { opacity: .55; cursor: not-allowed; }
+      .card {
+        background: color-mix(in srgb, var(--card) 92%, white 8%);
+        border-radius: 18px;
+        padding: 20px;
+        border: 1px solid #dbe3e9;
+        box-shadow: 0 12px 32px rgba(20, 33, 44, .08);
+      }
+      .section {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px solid #dbe4ea;
+        border-radius: 14px;
+        background: #fbfdfd;
+      }
+      .section-title {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 800;
+        color: #1f3344;
+        letter-spacing: .01em;
+      }
+      label { font-weight: 700; display:block; margin-top: 12px; }
+      input, textarea, select {
+        width: 100%; padding: 11px 12px; border-radius: 12px;
+        border: 1px solid var(--line); margin-top: 6px; font-size: 14px;
+        background: #fff;
+        transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      input:focus, textarea:focus, select:focus {
+        outline: none;
+        border-color: #80bcb6;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, .12);
+      }
+      textarea { min-height: 140px; }
+      .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .btn {
+        margin-top: 16px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color:white; border:none;
+        padding: 12px 16px; border-radius: 12px; font-weight: 800; cursor:pointer;
+        box-shadow: 0 8px 18px rgba(15, 118, 110, .28);
+      }
+      .btn:disabled { opacity:.6; cursor:not-allowed; }
+      .note { color:var(--ink-soft); font-size: 13px; margin-top:6px; }
+      .out { margin-top: 16px; padding: 12px; background:#102031; color:#d7e9f4; border-radius: 12px; overflow:auto; }
+      a { color: #0f766e; }
+      .checkrow { display:flex; align-items:center; gap:10px; margin-top:12px; }
+      .checkrow input { width:auto; margin-top:0; }
+      .checkrow label { margin-top:0; font-weight:700; }
+      .field-icon { margin-right: 6px; color: #3a596e; }
+      .hint {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #2f4e63;
+        background: #edf6fb;
+        border: 1px solid #cfe2ef;
+        border-radius: 10px;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+      .hidden { display: none !important; }
+      @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      @media (max-width: 760px) {
+        .row { grid-template-columns: 1fr; }
+      .card { padding: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <span class="kicker">AI Workflow</span>
+        <h1>Report Copilot</h1>
+        <p class="sub">Generate polished report PDFs from notes, manuals, and CSVs with section-structured writing, review feedback, and visual outputs.</p>
+        <div id="runtimeBanner" class="runtime-banner">Loading runtime settings...</div>
+      </div>
+      <div class="card">
+        <form id="runForm">
+          <div class="section">
+            <p class="section-title">Template & Sources</p>
+
+          <label><span class="field-icon">▣</span>Template</label>
+          <select name="template" id="templateSelect">
+            <option value="lab_report">Lab / Technical Report</option>
+            <option value="data_insights">Data Insights Report</option>
+            <option value="study_guide">Study Guide</option>
+          </select>
+          <div id="templateHint" class="hint">Loading template rules...</div>
+
+          <div class="row">
+            <div>
+              <label><span class="field-icon">◫</span>Manual PDF (optional)</label>
+              <input type="file" name="manual_pdf" accept="application/pdf" />
+              <div class="note">If you upload a PDF, it will be used instead of pasted text.</div>
+            </div>
+            <div id="csvWrap">
+              <label id="csvLabel"><span class="field-icon">▤</span>CSV (optional depending on template)</label>
+              <input id="csvInput" type="file" name="data_csv" accept=".csv,text/csv" />
+              <div id="csvNote" class="note">Required for lab_report and data_insights.</div>
+            </div>
+          </div>
+
+          <label><span class="field-icon">✎</span>Manual / Notes Text (optional if PDF uploaded)</label>
+          <textarea id="manualText" name="manual_text" placeholder="Paste manual / notes here..."></textarea>
+          </div>
+
+          <div class="section">
+            <p class="section-title">Output Metadata</p>
+
+          <div class="row">
+            <div>
+              <label><span class="field-icon">⌁</span>Report title (optional)</label>
+              <input id="reportTitle" name="report_title" placeholder="e.g., Heating Curve Report" />
+            </div>
+            <div>
+              <label><span class="field-icon">◎</span>Goal (optional)</label>
+              <input id="goalInput" name="goal" placeholder="e.g., Generate a submission-ready report." />
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label><span class="field-icon">◉</span>Name (optional)</label>
+              <input name="student_name" placeholder="Wahab Alam" />
+            </div>
+            <div>
+              <label><span class="field-icon">◌</span>Course (optional)</label>
+              <input name="course" placeholder="MECE XXXX" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label><span class="field-icon">◍</span>Group (optional)</label>
+              <input name="group" placeholder="Group 7" />
+            </div>
+            <div>
+              <label><span class="field-icon">◷</span>Date (optional)</label>
+              <input name="date" placeholder="2026-02-11" />
+            </div>
+          </div>
+          </div>
+
+          <div class="section">
+          <p class="section-title">Final Controls</p>
+          <label><span class="field-icon">≋</span>Extra instructions (optional)</label>
+          <textarea id="extraInstructions" name="extra_instructions" placeholder="Tone, formatting rules, etc."></textarea>
+
+          <div id="reviewRow" class="checkrow">
+            <input type="checkbox" id="include_review" name="include_review" value="1" />
+            <label for="include_review">Include reviewer feedback section</label>
+          </div>
+          <div id="reviewNote" class="note">Unchecked = the PDF will not include the Review section.</div>
+          </div>
+
+          <button class="btn" type="submit" id="runBtn">Generate PDF</button>
+        </form>
+
+        <div id="output" class="out" style="display:none;"></div>
+      </div>
+      <details class="recent" id="recentPanel">
+        <summary>Recent Jobs</summary>
+        <div id="recentJobs" class="jobs-grid" style="margin-top:10px;">
+          <div class="note">Loading recent jobs...</div>
+        </div>
+      </details>
+    </div>
+
+    <script>
+      const form = document.getElementById("runForm");
+      const out = document.getElementById("output");
+      const btn = document.getElementById("runBtn");
+      const templateSelect = document.getElementById("templateSelect");
+      const templateHint = document.getElementById("templateHint");
+      const csvWrap = document.getElementById("csvWrap");
+      const csvInput = document.getElementById("csvInput");
+      const csvLabel = document.getElementById("csvLabel");
+      const csvNote = document.getElementById("csvNote");
+      const includeReview = document.getElementById("include_review");
+      const reviewRow = document.getElementById("reviewRow");
+      const reviewNote = document.getElementById("reviewNote");
+      const reportTitle = document.getElementById("reportTitle");
+      const goalInput = document.getElementById("goalInput");
+      const manualText = document.getElementById("manualText");
+      const extraInstructions = document.getElementById("extraInstructions");
+      const runtimeBanner = document.getElementById("runtimeBanner");
+      const recentJobs = document.getElementById("recentJobs");
+      const recentPanel = document.getElementById("recentPanel");
+
+      const fallbackTemplates = {
+        lab_report: {
+          display_name: "Lab / Technical Report",
+          pdf_title_default: "Technical Lab Report",
+          needs_csv: true,
+          include_review: true,
+          include_plots: true,
+          writer_format: ["Objective", "Introduction", "Theoretical Background", "Apparatus & Procedure", "Results", "Discussion", "Conclusion", "References"],
+          form_schema: {
+            allow_csv: true,
+            require_csv: true,
+            allow_review: true,
+            goal_min_len: 0,
+            goal_placeholder: "e.g., Generate a submission-ready report.",
+            manual_placeholder: "Paste manual / notes here...",
+            extra_placeholder: "Tone, formatting rules, etc.",
+          },
+        },
+        data_insights: {
+          display_name: "Data Insights Report",
+          pdf_title_default: "Data Insights Report",
+          needs_csv: true,
+          include_review: false,
+          include_plots: true,
+          writer_format: ["Objective", "Dataset Overview", "Key Insights", "Visualizations", "Recommendations", "Risks & Limitations", "Next Steps"],
+          form_schema: {
+            allow_csv: true,
+            require_csv: true,
+            allow_review: false,
+            goal_min_len: 10,
+            goal_placeholder: "e.g., Summarize trends and recommendations for stakeholders.",
+            manual_placeholder: "Paste business context, KPI definitions, and reporting goals...",
+            extra_placeholder: "Audience, tone, decision focus, limitations to mention, etc.",
+          },
+        },
+        study_guide: {
+          display_name: "Study Guide",
+          pdf_title_default: "Study Guide",
+          needs_csv: false,
+          include_review: false,
+          include_plots: false,
+          writer_format: ["Overview", "Key Concepts", "Definitions", "Common Mistakes", "Practice Questions", "Answer Key (brief)"],
+          form_schema: {
+            allow_csv: false,
+            require_csv: false,
+            allow_review: false,
+            goal_min_len: 0,
+            goal_placeholder: "e.g., Build an exam-focused study guide from the notes.",
+            manual_placeholder: "Paste lecture notes, textbook snippets, or review points...",
+            extra_placeholder: "Difficulty, focus chapters, question style, etc.",
+          },
+        },
+      };
+
+      function renderTemplateOptions(templates, selected) {
+        const entries = Object.entries(templates || {});
+        if (!entries.length) return;
+        templateSelect.innerHTML = entries
+          .map(([k, v]) => `<option value="${k}">${v.display_name || k}</option>`)
+          .join("");
+        templateSelect.value = selected && templates[selected] ? selected : entries[0][0];
+      }
+
+      function renderRuntime(runtime) {
+        if (!runtimeBanner) return;
+        if (!runtime) {
+          runtimeBanner.textContent = "Runtime settings unavailable.";
+          return;
+        }
+        const adminOn = runtime.admin_protected_endpoints ? "ON" : "OFF";
+        const limiterOn = runtime.run_rate_limit_enabled ? "ON" : "OFF";
+        const limitMsg = runtime.run_rate_limit_enabled
+          ? `${runtime.run_rate_limit_max_requests} requests / ${runtime.run_rate_limit_window_seconds}s`
+          : "Disabled";
+        runtimeBanner.textContent =
+          `Runtime status\n` +
+          `Admin protection (/cancel, /cleanup): ${adminOn}\n` +
+          `Run rate limiter: ${limiterOn} (${limitMsg})`;
+      }
+
+      function applyTemplateUi(key, cfg) {
+        if (!cfg) return;
+        const schema = cfg.form_schema || {};
+        const allowCsv = schema.allow_csv !== false;
+        const requireCsv = !!schema.require_csv;
+        const allowReview = schema.allow_review !== false;
+        const goalMinLen = Number(schema.goal_min_len || 0);
+
+        const sections = Array.isArray(cfg.writer_format) ? cfg.writer_format : [];
+        const sectionPreview = sections.length ? sections.join(" | ") : "No fixed sections";
+        templateHint.textContent =
+          `Template: ${cfg.display_name}\n` +
+          `CSV: ${requireCsv ? "Required" : (allowCsv ? "Optional" : "Not allowed")}\n` +
+          `Review section: ${allowReview ? "Available" : "Not available"}\n` +
+          `Goal min length: ${goalMinLen} chars\n` +
+          `Expected sections: ${sectionPreview}`;
+
+        csvInput.required = requireCsv;
+        if (requireCsv) {
+          csvWrap.classList.remove("hidden");
+          csvLabel.innerHTML = '<span class="field-icon">▤</span>CSV (required for this template)';
+          csvNote.textContent = "This template requires a CSV upload.";
+        } else if (allowCsv) {
+          csvWrap.classList.remove("hidden");
+          csvLabel.innerHTML = '<span class="field-icon">▤</span>CSV (optional)';
+          csvNote.textContent = cfg.include_plots
+            ? "Optional: upload CSV to include data analysis and plots."
+            : "Optional: upload CSV for additional context.";
+        } else {
+          csvWrap.classList.add("hidden");
+          csvInput.value = "";
+        }
+
+        if (allowReview) {
+          reviewRow.classList.remove("hidden");
+          includeReview.disabled = false;
+          includeReview.checked = true;
+          reviewNote.textContent = "Unchecked = the PDF will not include the Review section.";
+        } else {
+          reviewRow.classList.remove("hidden");
+          includeReview.checked = false;
+          includeReview.disabled = true;
+          reviewNote.textContent = "This template does not support reviewer feedback.";
+        }
+
+        reportTitle.placeholder = `e.g., ${cfg.pdf_title_default || "Report"}`;
+        goalInput.placeholder = schema.goal_placeholder || "e.g., Generate a submission-ready report.";
+        manualText.placeholder = schema.manual_placeholder || "Paste manual / notes here...";
+        extraInstructions.placeholder = schema.extra_placeholder || "Tone, formatting rules, etc.";
+      }
+
+      async function initTemplateUi() {
+        let templates = fallbackTemplates;
+        let defaultTemplate = templateSelect.value || "lab_report";
+
+        try {
+          const res = await fetch("/template-configs");
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.templates && Object.keys(data.templates).length) {
+              templates = data.templates;
+            }
+            if (data && data.default_template) {
+              defaultTemplate = data.default_template;
+            }
+            renderRuntime(data && data.runtime ? data.runtime : null);
+          }
+        } catch (_) {
+          // fallback to local defaults
+          renderRuntime(null);
+        }
+
+        renderTemplateOptions(templates, defaultTemplate);
+        applyTemplateUi(templateSelect.value, templates[templateSelect.value]);
+
+        templateSelect.addEventListener("change", () => {
+          applyTemplateUi(templateSelect.value, templates[templateSelect.value]);
+        });
+      }
+
+      function statusClass(s) {
+        if (s === "done") return "done";
+        if (s === "running") return "running";
+        if (s === "failed") return "failed";
+        if (s === "canceled") return "canceled";
+        return "";
+      }
+
+      async function cancelRecentJob(jobId, btn) {
+        if (btn) btn.disabled = true;
+        try {
+          await fetch(`/cancel/${jobId}`, { method: "POST" });
+        } catch (_) {}
+        await loadRecentJobs();
+      }
+
+      async function retryRecentJob(jobId, btn) {
+        if (btn) btn.disabled = true;
+        try {
+          const res = await fetch(`/retry/${jobId}`, { method: "POST" });
+          const data = await res.json();
+          if (res.ok && data.job_url) {
+            window.location.href = data.job_url;
+            return;
+          }
+        } catch (_) {}
+        await loadRecentJobs();
+      }
+
+      async function loadRecentJobs() {
+        if (!recentJobs) return;
+        try {
+          const showAll = !!(window.localStorage && localStorage.getItem("recent_show_all") === "1");
+          const res = await fetch(`/recent-jobs?limit=5&show_all=${showAll ? "true" : "false"}`);
+          const data = await res.json();
+          const jobs = (data && data.jobs) || [];
+          if (!jobs.length) {
+            recentJobs.innerHTML = '<div class="note">No jobs yet.</div>';
+            if (recentPanel) recentPanel.open = false;
+            return;
+          }
+          if (recentPanel) recentPanel.open = false;
+
+          recentJobs.innerHTML = jobs.map(j => {
+            const st = j.status || "queued";
+            const tpl = j.template_display_name || j.template || "Unknown template";
+            const allowCancel = (st === "queued" || st === "running");
+            const allowRetry = (st === "failed" || st === "canceled");
+            return `
+              <div class="job-card">
+                <div class="job-top">
+                  <div class="job-id">${j.job_id}</div>
+                  <span class="pill-sm ${statusClass(st)}">${st}</span>
+                </div>
+                <div class="job-meta">${tpl} • stage: ${j.stage || "n/a"} • ${Number(j.progress_pct || 0)}%</div>
+                <div class="job-meta">updated: ${j.updated_at || ""}</div>
+                <div class="job-actions">
+                  <a href="${j.job_url}">View</a>
+                  <a href="${j.download_url}">Download</a>
+                  <button data-cancel="${j.job_id}" ${allowCancel ? "" : "disabled"}>Cancel</button>
+                  <button data-retry="${j.job_id}" ${allowRetry ? "" : "disabled"}>Retry</button>
+                </div>
+              </div>
+            `;
+          }).join("");
+
+          recentJobs.querySelectorAll("button[data-cancel]").forEach((b) => {
+            b.addEventListener("click", () => cancelRecentJob(b.getAttribute("data-cancel"), b));
+          });
+          recentJobs.querySelectorAll("button[data-retry]").forEach((b) => {
+            b.addEventListener("click", () => retryRecentJob(b.getAttribute("data-retry"), b));
+          });
+
+          const controls = document.createElement("div");
+          controls.className = "recent-controls";
+          controls.innerHTML = `
+            <label><input type="checkbox" id="showAllJobsToggle" ${showAll ? "checked" : ""}/> Show all jobs</label>
+          `;
+          recentJobs.prepend(controls);
+          const toggle = document.getElementById("showAllJobsToggle");
+          if (toggle) {
+            toggle.addEventListener("change", () => {
+              if (window.localStorage) localStorage.setItem("recent_show_all", toggle.checked ? "1" : "0");
+              loadRecentJobs();
+            });
+          }
+        } catch (err) {
+          recentJobs.innerHTML = `<div class="note">Failed to load recent jobs: ${err}</div>`;
+        }
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        out.style.display = "block";
+        out.textContent = "Submitting job...";
+        btn.disabled = true;
+
+        const fd = new FormData(form);
+
+        // Do not send empty file fields
+        const manualInput = form.querySelector('input[name="manual_pdf"]');
+        const csvInput = form.querySelector('input[name="data_csv"]');
+
+        if (!manualInput.files || manualInput.files.length === 0) fd.delete("manual_pdf");
+        if (!csvInput.files || csvInput.files.length === 0) fd.delete("data_csv");
+
+        // Ensure checkbox default is sent (backend expects Form("0"))
+        if (!fd.has("include_review")) fd.set("include_review", "0");
+
+        try {
+          const res = await fetch("/run", { method: "POST", body: fd });
+          const data = await res.json();
+
+          if (!res.ok) {
+            out.textContent = "Error: " + (data.detail || JSON.stringify(data, null, 2));
+          } else {
+            out.textContent = "Job started. Redirecting to results page...";
+            const jobUrl = data.job_url || ("/job/" + data.job_id);
+            window.location.href = jobUrl;
+          }
+        } catch (err) {
+          out.textContent = "Request failed: " + err;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      initTemplateUi();
+      loadRecentJobs();
+    </script>
+  </body>
+</html>

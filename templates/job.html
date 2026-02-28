@@ -1,0 +1,439 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Report Copilot - Job</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --bg-0: #f4f2ed;
+        --bg-1: #e8efe7;
+        --ink: #1a2430;
+        --ink-soft: #566273;
+        --line: #d5dde3;
+        --card: #fcfcfb;
+        --accent: #0f766e;
+        --accent-2: #155e75;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+        margin: 0;
+        background:
+          radial-gradient(1100px 500px at -20% -10%, #d9efe8 0%, transparent 60%),
+          radial-gradient(900px 500px at 120% 0%, #d8e7f4 0%, transparent 62%),
+          linear-gradient(180deg, var(--bg-0), var(--bg-1));
+        color: var(--ink);
+        min-height: 100vh;
+      }
+      .wrap { max-width: 980px; margin: 40px auto; padding: 0 16px; animation: fade-in .35s ease; }
+      .card {
+        background: color-mix(in srgb, var(--card) 92%, white 8%);
+        border-radius: 18px;
+        padding: 20px;
+        border: 1px solid #dbe3e9;
+        box-shadow: 0 12px 32px rgba(20, 33, 44, .08);
+      }
+      .row { display:flex; gap: 12px; flex-wrap: wrap; align-items:center; }
+      .pill {
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: #edf8f5;
+        color:#144e4b;
+        font-weight: 800;
+        border: 1px solid #bcded8;
+      }
+      .pill.status-done { background:#e8f7ef; color:#155b3e; border-color:#b9e4cc; }
+      .pill.status-running { background:#edf8f5; color:#144e4b; border-color:#bcded8; }
+      .pill.status-queued { background:#eef4ff; color:#1f3f72; border-color:#c7d7ef; }
+      .pill.status-failed { background:#fdeced; color:#8f1f2f; border-color:#f1c5cb; }
+      .pill.status-canceled { background:#fff3e5; color:#7a4312; border-color:#f1d5b5; }
+      .muted { color:var(--ink-soft); font-size: 13px; }
+      .error { color:#b00020; white-space: pre-wrap; margin-top: 12px; }
+      a.btn {
+        display:inline-block; text-decoration:none; font-weight: 800;
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color:white; padding: 10px 14px; border-radius: 12px;
+        box-shadow: 0 8px 18px rgba(15, 118, 110, .28);
+      }
+      a.btn.secondary { background:#36536b; box-shadow: none; }
+      a.btn[aria-disabled="true"] { opacity:.55; pointer-events:none; }
+      code { background:#eef3f6; padding:2px 6px; border-radius: 8px; }
+      .spacer { height: 12px; }
+      .bar-wrap {
+        width: 100%;
+        height: 12px;
+        background: #dce8e6;
+        border-radius: 999px;
+        overflow: hidden;
+        border: 1px solid #c8d8d5;
+      }
+      .bar-fill {
+        height:100%;
+        background: linear-gradient(90deg, #0f766e, #155e75);
+        width:0%;
+        transition: width .2s ease;
+      }
+      .timings { font-size: 12px; color:#334155; background:#f8fbfd; border:1px solid #dce4ea; border-radius:10px; padding:10px; white-space:pre-wrap; }
+      .timings-title { margin:0 0 6px; font-size: 12px; letter-spacing:.06em; text-transform: uppercase; color:#486176; font-weight:800; }
+      .editor { margin-top: 12px; border:1px solid #dce4ea; border-radius:10px; padding:10px; background:#f8fbfd; }
+      .editor h3 { margin: 0 0 8px; font-size: 14px; }
+      .editor textarea, .editor select, .editor input {
+        width: 100%;
+        border: 1px solid #cbd8e3;
+        border-radius: 10px;
+        padding: 9px 10px;
+        font-size: 13px;
+      }
+      .editor textarea { min-height: 180px; resize: vertical; }
+      .editor .row { margin-top: 8px; }
+      .editor .actions { margin-top: 8px; display:flex; gap:8px; flex-wrap:wrap; }
+      .editor .actions button {
+        border: 1px solid #cbd8e3;
+        background: #fff;
+        color:#234156;
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .editor .msg { margin-top: 8px; font-size: 12px; color:#24445b; white-space: pre-wrap; }
+      .quality { margin-top: 12px; border:1px solid #dce4ea; border-radius:10px; padding:10px; background:#f8fbfd; }
+      .quality h3 { margin:0 0 8px; font-size: 14px; }
+      .quality .ok { color:#155b3e; font-weight:700; }
+      .quality .warn { color:#8f1f2f; font-weight:700; }
+      .quality ul { margin:8px 0 0 18px; padding:0; }
+      .quality li { margin:4px 0; font-size:12px; color:#334155; }
+      @keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      @media (max-width: 760px) { .card { padding: 16px; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 style="margin:0 0 14px;">Report Copilot</h1>
+
+      <div class="card">
+        <h2 style="margin:0 0 10px;">Job <code>{{ job_id }}</code></h2>
+
+        {% if not state %}
+          <div class="error">Job not found.</div>
+          <div class="spacer"></div>
+          <a class="btn secondary" href="/app">Back</a>
+        {% else %}
+          <div class="row">
+            <div class="pill" id="statusPill">Status: {{ state["status"] }}</div>
+            <div class="pill" id="stagePill">Stage: {{ state.get("stage", "queued") }}</div>
+            <div class="pill" id="progressPill">Progress: {{ state.get("progress_pct", 0) }}%</div>
+            <div class="muted">Updated: <span id="updatedAt">{{ state["updated_at"] }}</span></div>
+          </div>
+          <div class="spacer"></div>
+          <div class="bar-wrap"><div class="bar-fill" id="progressFill"></div></div>
+
+          <div class="spacer"></div>
+
+          <div class="row">
+            <a class="btn" id="downloadBtn" href="/download/{{ job_id }}" aria-disabled="true">Download PDF</a>
+            <a class="btn secondary" href="#" id="cancelBtn">Cancel job</a>
+            <a class="btn secondary" href="#" id="retryBtn" aria-disabled="true">Retry job</a>
+            <a class="btn secondary" href="/app">Create another</a>
+          </div>
+
+          <div id="errorBox" class="error"></div>
+
+          <div class="spacer"></div>
+          <div class="timings" id="timingsBox">Timings: waiting for debug data...</div>
+
+          <div id="qualityBox" class="quality">
+            <h3>Quality Gate</h3>
+            <div id="qualitySummary" class="muted">Waiting for quality data...</div>
+            <ul id="qualityIssues"></ul>
+          </div>
+
+          <div id="editorBox" class="editor">
+            <h3>Draft Editor</h3>
+            <textarea id="draftText" placeholder="Loading draft..."></textarea>
+            <div class="row">
+              <div style="flex:1; min-width: 200px;">
+                <div class="muted" style="margin-bottom:4px;">Section to regenerate</div>
+                <select id="sectionSelect"></select>
+              </div>
+              <div style="flex:2; min-width: 240px;">
+                <div class="muted" style="margin-bottom:4px;">Regeneration instructions (optional)</div>
+                <input id="sectionInstructions" placeholder="e.g., tighten wording and include calculation assumptions" />
+              </div>
+            </div>
+            <div class="actions">
+              <button id="saveDraftBtn">Save Draft</button>
+              <button id="regenSectionBtn">Regenerate Section</button>
+              <button id="qualityFixBtn">Apply Quality Fix</button>
+              <button id="rebuildPdfBtn">Rebuild PDF</button>
+            </div>
+            <div id="editorMsg" class="msg"></div>
+          </div>
+
+          <div class="spacer"></div>
+          <div class="muted">This page auto-refreshes status.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <script>
+      const jobId = "{{ job_id }}";
+      const statusPill = document.getElementById("statusPill");
+      const stagePill = document.getElementById("stagePill");
+      const progressPill = document.getElementById("progressPill");
+      const progressFill = document.getElementById("progressFill");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const cancelBtn = document.getElementById("cancelBtn");
+      const retryBtn = document.getElementById("retryBtn");
+      const errorBox = document.getElementById("errorBox");
+      const updatedAt = document.getElementById("updatedAt");
+      const timingsBox = document.getElementById("timingsBox");
+      const editorBox = document.getElementById("editorBox");
+      const draftText = document.getElementById("draftText");
+      const sectionSelect = document.getElementById("sectionSelect");
+      const sectionInstructions = document.getElementById("sectionInstructions");
+      const saveDraftBtn = document.getElementById("saveDraftBtn");
+      const regenSectionBtn = document.getElementById("regenSectionBtn");
+      const rebuildPdfBtn = document.getElementById("rebuildPdfBtn");
+      const qualityFixBtn = document.getElementById("qualityFixBtn");
+      const editorMsg = document.getElementById("editorMsg");
+      let currentHeaders = [];
+      const qualityBox = document.getElementById("qualityBox");
+      const qualitySummary = document.getElementById("qualitySummary");
+      const qualityIssues = document.getElementById("qualityIssues");
+
+      function setProgress(pct) {
+        const v = Number(pct || 0);
+        if (progressPill) progressPill.textContent = `Progress: ${v}%`;
+        if (progressFill) progressFill.style.width = `${Math.max(0, Math.min(100, v))}%`;
+      }
+
+      function setStatusClass(status) {
+        if (!statusPill) return;
+        statusPill.className = "pill status-" + (status || "running");
+      }
+
+      function setTimings(timings, totalMs) {
+        const t = timings || {};
+        const keys = Object.keys(t);
+        if (keys.length === 0) {
+          timingsBox.innerHTML = '<p class="timings-title">Stage Timings</p>Timings: waiting for debug data...';
+          return;
+        }
+        const lines = keys.map(k => `${k}: ${t[k]} ms`);
+        if (typeof totalMs === "number") lines.push(`total pipeline: ${totalMs} ms`);
+        timingsBox.innerHTML = '<p class="timings-title">Stage Timings</p>' + lines.join("\n");
+      }
+
+      function setEditorEnabled(enabled) {
+        const disabled = !enabled;
+        if (draftText) draftText.disabled = disabled;
+        if (sectionSelect) sectionSelect.disabled = disabled;
+        if (sectionInstructions) sectionInstructions.disabled = disabled;
+        if (saveDraftBtn) saveDraftBtn.disabled = disabled;
+        if (regenSectionBtn) regenSectionBtn.disabled = disabled;
+        if (rebuildPdfBtn) rebuildPdfBtn.disabled = disabled;
+        if (qualityFixBtn) qualityFixBtn.disabled = disabled;
+      }
+
+      function setEditorMessage(msg) {
+        if (editorMsg) editorMsg.textContent = msg || "";
+      }
+
+      function setQuality(qualityOk, issueCount, issues) {
+        if (!qualityBox || !qualitySummary || !qualityIssues) return;
+        if (typeof qualityOk !== "boolean" && typeof issueCount !== "number") {
+          qualitySummary.className = "muted";
+          qualitySummary.textContent = "Waiting for quality data...";
+          qualityIssues.innerHTML = "";
+          return;
+        }
+        if (qualityOk) {
+          qualitySummary.className = "ok";
+          qualitySummary.textContent = "Passed quality checks.";
+        } else {
+          qualitySummary.className = "warn";
+          qualitySummary.textContent = `Needs attention: ${Number(issueCount || 0)} issue(s).`;
+        }
+        const list = Array.isArray(issues) ? issues : [];
+        qualityIssues.innerHTML = list.map(i => `<li>${i.detail || JSON.stringify(i)}</li>`).join("");
+      }
+
+      async function loadDraft() {
+        if (!editorBox) return;
+        try {
+          const res = await fetch(`/draft/${jobId}`);
+          const data = await res.json();
+          if (!res.ok) {
+            setEditorMessage("Draft unavailable: " + (data.detail || JSON.stringify(data)));
+            setEditorEnabled(false);
+            return;
+          }
+          draftText.value = data.report_text || "";
+          currentHeaders = Array.isArray(data.headers) ? data.headers : [];
+          sectionSelect.innerHTML = currentHeaders.map(h => `<option value="${h}">${h}</option>`).join("");
+          if (!currentHeaders.length) {
+            sectionSelect.innerHTML = '<option value="">No template sections found</option>';
+          }
+          setEditorEnabled(!!data.editable);
+          setEditorMessage(data.editable ? "Draft loaded." : "Draft is read-only while job is still running.");
+        } catch (err) {
+          setEditorMessage("Failed to load draft: " + err);
+          setEditorEnabled(false);
+        }
+      }
+
+      async function tick() {
+        try {
+          const res = await fetch(`/status/${jobId}`);
+          if (!res.ok) return;
+          const st = await res.json();
+
+          if (statusPill) statusPill.textContent = `Status: ${st.status}`;
+          setStatusClass(st.status);
+          if (stagePill) stagePill.textContent = `Stage: ${st.stage || "running"}`;
+          if (updatedAt) updatedAt.textContent = st.updated_at || "";
+          setProgress(st.progress_pct || 0);
+          setTimings(st.timings_ms || {}, st.pipeline_duration_ms);
+          setQuality(st.quality_ok, st.quality_issue_count, st.quality_issues);
+
+          if (downloadBtn) {
+            if (st.status === "done") downloadBtn.setAttribute("aria-disabled", "false");
+            else downloadBtn.setAttribute("aria-disabled", "true");
+          }
+
+          if (cancelBtn) {
+            if (st.status === "queued" || st.status === "running") cancelBtn.setAttribute("aria-disabled", "false");
+            else cancelBtn.setAttribute("aria-disabled", "true");
+          }
+          if (retryBtn) {
+            if (st.status === "failed" || st.status === "canceled") retryBtn.setAttribute("aria-disabled", "false");
+            else retryBtn.setAttribute("aria-disabled", "true");
+          }
+          if (editorBox) {
+            const editable = (st.status === "done" || st.status === "failed" || st.status === "canceled");
+            setEditorEnabled(editable);
+          }
+
+          if (errorBox) {
+            if (st.status === "failed") errorBox.textContent = st.error || "Unknown error";
+            else errorBox.textContent = "";
+          }
+
+          if (st.status === "done" || st.status === "failed" || st.status === "canceled") return;
+        } catch (e) {
+          // ignore transient errors
+        }
+        setTimeout(tick, 1200);
+      }
+
+      setProgress({{ state.get("progress_pct", 0) if state else 0 }});
+      setStatusClass("{{ state.get('status', 'queued') if state else 'queued' }}");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          cancelBtn.setAttribute("aria-disabled", "true");
+          try {
+            await fetch(`/cancel/${jobId}`, { method: "POST" });
+          } catch (_) {}
+          setTimeout(tick, 200);
+        });
+      }
+      if (retryBtn) {
+        retryBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          retryBtn.setAttribute("aria-disabled", "true");
+          try {
+            const res = await fetch(`/retry/${jobId}`, { method: "POST" });
+            const data = await res.json();
+            if (res.ok && data.job_url) {
+              window.location.href = data.job_url;
+              return;
+            }
+            if (errorBox) errorBox.textContent = "Retry failed: " + (data.detail || JSON.stringify(data));
+          } catch (err) {
+            if (errorBox) errorBox.textContent = "Retry failed: " + err;
+          } finally {
+            setTimeout(tick, 200);
+          }
+        });
+      }
+      if (saveDraftBtn) {
+        saveDraftBtn.addEventListener("click", async () => {
+          setEditorMessage("Saving draft...");
+          try {
+            const res = await fetch(`/draft/${jobId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ report_text: draftText.value || "" }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+            setEditorMessage("Draft saved.");
+          } catch (err) {
+            setEditorMessage("Save failed: " + err);
+          }
+        });
+      }
+      if (regenSectionBtn) {
+        regenSectionBtn.addEventListener("click", async () => {
+          const section = sectionSelect.value;
+          if (!section) {
+            setEditorMessage("Pick a section first.");
+            return;
+          }
+          setEditorMessage(`Regenerating "${section}"...`);
+          try {
+            const res = await fetch(`/regenerate-section/${jobId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                section,
+                instructions: sectionInstructions.value || "",
+              }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+            await loadDraft();
+            setEditorMessage(`Section "${section}" regenerated and PDF rebuilt.`);
+          } catch (err) {
+            setEditorMessage("Regenerate failed: " + err);
+          }
+        });
+      }
+      if (rebuildPdfBtn) {
+        rebuildPdfBtn.addEventListener("click", async () => {
+          setEditorMessage("Rebuilding PDF...");
+          try {
+            const res = await fetch(`/rebuild/${jobId}`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+            setEditorMessage("PDF rebuilt successfully.");
+          } catch (err) {
+            setEditorMessage("Rebuild failed: " + err);
+          }
+        });
+      }
+      if (qualityFixBtn) {
+        qualityFixBtn.addEventListener("click", async () => {
+          setEditorMessage("Applying quality fix...");
+          try {
+            const res = await fetch(`/quality-fix/${jobId}`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+            await loadDraft();
+            await tick();
+            setEditorMessage(`Quality fix complete. Remaining issues: ${Number(data.quality_issue_count || 0)}.`);
+          } catch (err) {
+            setEditorMessage("Quality fix failed: " + err);
+          }
+        });
+      }
+      loadDraft();
+      setQuality(null, null, null);
+      tick();
+    </script>
+  </body>
+</html>
