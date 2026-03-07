@@ -1,3 +1,5 @@
+"""Utility helpers for files."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,7 +32,14 @@ def save_upload(
         allowed = ", ".join(sorted(allowed_extensions))
         raise ValueError(f"Invalid file type '{ext or '(none)'}'. Allowed: {allowed}")
 
-    payload = file_obj.file.read(max_bytes + 1)
+    stream = getattr(file_obj, "file", None)
+    if stream is None:
+        raise ValueError("Missing upload stream")
+    try:
+        stream.seek(0)
+    except Exception:
+        pass
+    payload = stream.read(max_bytes + 1)
     if len(payload) > max_bytes:
         raise ValueError(f"File too large (max {max_bytes // (1024 * 1024)} MB)")
 

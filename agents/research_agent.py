@@ -1,13 +1,17 @@
+"""Agent implementation for research agent."""
+
 # agents/research_agent.py
 from __future__ import annotations
 
 from schemas import AgentResult
 from utils.llm import chat
+from utils.retrieval import build_source_chunks, select_relevant_chunks
 
 SYSTEM = """You extract and summarize theory/notes from the provided manual text.
 
 Rules:
 - Only use what the user provided in manual_text.
+- If SOURCE CHUNKS with [S#] ids are provided, keep source tags in key factual bullets where possible.
 - If information is missing, list it under "Missing Info / Clarifications Needed".
 - Keep it structured and detailed.
 - Preserve broad topic coverage from the source (do not collapse many topics into a few bullets).
@@ -72,12 +76,21 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
     try:
         manual_text = (ctx.get("manual_text") or "").strip()
         goal = (ctx.get("goal") or "").strip()
+        template_cfg = ctx.get("template_cfg") or {}
+        source_chunks = ctx.get("source_chunks") or build_source_chunks(manual_text)
+        section_labels = template_cfg.get("writer_format", []) or []
+        retrieval_query = f"{goal}\n" + "\n".join(str(s) for s in section_labels)
+        selected_chunks = select_relevant_chunks(retrieval_query, source_chunks, top_k=18) if source_chunks else []
+        chunk_block = "\n\n".join([f"[{c.get('id','')}]\n{c.get('text','')}" for c in selected_chunks])
 
         user = f"""GOAL:
 {goal}
 
-MANUAL / NOTES TEXT:
-{manual_text}
+SOURCE CHUNKS (preferred if provided):
+{chunk_block or "(none)"}
+
+MANUAL / NOTES TEXT (fallback context):
+{manual_text[:3000] if chunk_block else manual_text}
 
 Extract the structured theory now."""
         theory_text = chat(SYSTEM, user)
@@ -86,7 +99,11 @@ Extract the structured theory now."""
         return AgentResult.success(
             "research",
             job_id,
-            payload={"theory_text": theory_text, "research_facts": research_facts},
+            payload={
+                "theory_text": theory_text,
+                "research_facts": research_facts,
+                "source_chunks_used": [c.get("id", "") for c in selected_chunks],
+            },
         )
     except Exception as e:
         return AgentResult.fail("research", job_id, "Research agent failed", f"{type(e).__name__}: {e}")

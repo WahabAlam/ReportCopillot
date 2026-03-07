@@ -1,3 +1,5 @@
+"""Agent implementation for diagram agent."""
+
 # agents/diagram_agent.py
 from __future__ import annotations
 

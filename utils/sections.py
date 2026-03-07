@@ -1,3 +1,5 @@
+"""Utility helpers for sections."""
+
 # utils/sections.py
 from __future__ import annotations
 

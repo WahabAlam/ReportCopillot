@@ -1,14 +1,26 @@
+"""Template catalog defining report structure, rules, and UI metadata."""
+
 TEMPLATES = {
     "lab_report": {
         "display_name": "Lab / Technical Report",
         "pdf_title_default": "Technical Lab Report",
         "needs_csv": True,
         "include_plots": True,
+        "include_source_appendix": True,
         "include_review": True,   # ✅ default ON for labs
+        "pdf_theme": {
+            "font_name": "Helvetica",
+            "heading_color": "#0f172a",
+            "caption_color": "#334155",
+            "table_header_bg": "#eaf2ff",
+            "table_grid": "#94a3b8",
+            "table_alt_row_bg": "#f8fafc",
+        },
         "form_schema": {
             "allow_csv": True,
             "require_csv": True,
             "allow_review": True,
+            "allow_images": True,
             "goal_min_len": 0,
             "goal_placeholder": "e.g., Generate a submission-ready report.",
             "manual_placeholder": "Paste manual / notes here...",
@@ -30,6 +42,8 @@ TEMPLATES = {
             "Clearly label full-dataset vs preview table.",
             "Include an explicit heating-rate style calculation if slope info is available (Δy/Δx).",
             "Do not invent equipment models/settings not provided.",
+            "If uploaded lab images are provided, reference them where relevant using labels like [Image 1].",
+            "If image titles/captions are provided, use them as primary context for image mentions.",
         ],
         "reviewer_focus": [
             "Reproducibility (clear method + intervals)",
@@ -48,6 +62,15 @@ TEMPLATES = {
                 "Discussion": ["assumption", "limitation", "error"],
             },
             "required_global_terms": ["dataset"],
+            "min_source_tags_per_section": {
+                "Objective": 1,
+                "Introduction": 1,
+                "Theoretical Background": 1,
+                "Apparatus & Procedure": 1,
+                "Results": 2,
+                "Discussion": 2,
+                "Conclusion": 1,
+            },
         },
     },
 
@@ -56,11 +79,21 @@ TEMPLATES = {
         "pdf_title_default": "Data Insights Report",
         "needs_csv": True,
         "include_plots": True,
+        "include_source_appendix": True,
         "include_review": False,  # ✅ default OFF
+        "pdf_theme": {
+            "font_name": "Helvetica",
+            "heading_color": "#0b3a5e",
+            "caption_color": "#334155",
+            "table_header_bg": "#e9f6f5",
+            "table_grid": "#8ca3b7",
+            "table_alt_row_bg": "#f8fcff",
+        },
         "form_schema": {
             "allow_csv": True,
             "require_csv": True,
             "allow_review": False,
+            "allow_images": False,
             "goal_min_len": 10,
             "goal_placeholder": "e.g., Summarize trends and recommendations for stakeholders.",
             "manual_placeholder": "Paste business context, KPI definitions, and reporting goals...",
@@ -96,6 +129,15 @@ TEMPLATES = {
                 "Risks & Limitations": ["risk", "limitation"],
             },
             "required_global_terms": ["trend"],
+            "min_source_tags_per_section": {
+                "Objective": 1,
+                "Dataset Overview": 1,
+                "Key Insights": 2,
+                "Visualizations": 1,
+                "Recommendations": 1,
+                "Risks & Limitations": 1,
+                "Next Steps": 1,
+            },
         },
     },
 
@@ -104,11 +146,21 @@ TEMPLATES = {
         "pdf_title_default": "Study Guide",
         "needs_csv": False,
         "include_plots": False,
+        "include_source_appendix": True,
         "include_review": False,  # ✅ default OFF
+        "pdf_theme": {
+            "font_name": "Helvetica",
+            "heading_color": "#1f2937",
+            "caption_color": "#475569",
+            "table_header_bg": "#f3f4f6",
+            "table_grid": "#9ca3af",
+            "table_alt_row_bg": "#fafafa",
+        },
         "form_schema": {
             "allow_csv": False,
             "require_csv": False,
             "allow_review": False,
+            "allow_images": False,
             "goal_min_len": 0,
             "goal_placeholder": "e.g., Build an exam-focused study guide from the notes.",
             "manual_placeholder": "Paste lecture notes, textbook snippets, or review points...",
@@ -148,6 +200,14 @@ TEMPLATES = {
                 "Answer Key (brief)": ["answer"],
             },
             "required_global_terms": [],
+            "min_source_tags_per_section": {
+                "Overview": 1,
+                "Key Concepts": 2,
+                "Definitions": 1,
+                "Common Mistakes": 1,
+                "Practice Questions": 1,
+                "Answer Key (brief)": 1,
+            },
         },
     },
 }

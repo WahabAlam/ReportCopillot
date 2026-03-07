@@ -1,6 +1,7 @@
+"""Utility helpers for section validator."""
+
 from __future__ import annotations
 
-import re
 from typing import List
 
 
@@ -15,13 +16,15 @@ def find_missing_headers(report_text: str, required_headers: List[str]) -> List[
     Example: "Objective:" or "Objective:   "
     """
     text = report_text or ""
+    present: set[str] = set()
+    for raw in text.splitlines():
+        ln = raw.strip()
+        if not ln.endswith(":"):
+            continue
+        present.add(ln[:-1].strip().lower())
+
     missing: List[str] = []
-
     for h in required_headers:
-        # Match header at start of a line, allow spaces, require colon
-        # Example: ^Objective\s*:\s*$
-        pattern = rf"(?im)^\s*{re.escape(h)}\s*:\s*$"
-        if re.search(pattern, text) is None:
+        if h.strip().lower() not in present:
             missing.append(h)
-
     return missing

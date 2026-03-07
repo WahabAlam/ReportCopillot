@@ -1,3 +1,5 @@
+"""Utility helpers for jobs."""
+
 # utils/jobs.py
 from __future__ import annotations
 
@@ -38,13 +40,20 @@ def job_text_path(job_id: str, name: str) -> Path:
     return job_dir(job_id) / name
 
 
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
 def write_job_debug(job_id: str, data: dict) -> None:
     payload = {
         "job_id": job_id,
         "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         **data,
     }
-    job_debug_path(job_id).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _atomic_write_json(job_debug_path(job_id), payload)
 
 
 def read_job_debug(job_id: str) -> dict:
@@ -65,7 +74,7 @@ def upsert_job_debug(job_id: str, data: dict) -> None:
         "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         **current,
     }
-    job_debug_path(job_id).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _atomic_write_json(job_debug_path(job_id), payload)
 
 
 def write_job_text(job_id: str, filename: str, text: str) -> None:

@@ -1,3 +1,5 @@
+"""Tests for test queue."""
+
 from __future__ import annotations
 
 from fastapi import BackgroundTasks

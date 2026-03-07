@@ -1,6 +1,7 @@
 <!doctype html>
 <html>
   <head>
+    <!-- Job status, draft editing, and post-run actions UI. -->
     <meta charset="utf-8" />
     <title>Report Copilot - Job</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -111,6 +112,7 @@
   </head>
   <body>
     <div class="wrap">
+      <!-- Top-level status card and actions for a single job id. -->
       <h1 style="margin:0 0 14px;">Report Copilot</h1>
 
       <div class="card">
@@ -150,6 +152,7 @@
             <ul id="qualityIssues"></ul>
           </div>
 
+          <!-- Draft tools remain on the same page so users can iterate quickly. -->
           <div id="editorBox" class="editor">
             <h3>Draft Editor</h3>
             <textarea id="draftText" placeholder="Loading draft..."></textarea>
@@ -178,6 +181,7 @@
       </div>
     </div>
 
+    <!-- Polling/status client logic plus draft, rebuild, and quality-fix actions. -->
     <script>
       const jobId = "{{ job_id }}";
       const statusPill = document.getElementById("statusPill");
@@ -203,6 +207,15 @@
       const qualityBox = document.getElementById("qualityBox");
       const qualitySummary = document.getElementById("qualitySummary");
       const qualityIssues = document.getElementById("qualityIssues");
+
+      function escapeHtml(s) {
+        return String(s || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
 
       function setProgress(pct) {
         const v = Number(pct || 0);
@@ -258,7 +271,9 @@
           qualitySummary.textContent = `Needs attention: ${Number(issueCount || 0)} issue(s).`;
         }
         const list = Array.isArray(issues) ? issues : [];
-        qualityIssues.innerHTML = list.map(i => `<li>${i.detail || JSON.stringify(i)}</li>`).join("");
+        qualityIssues.innerHTML = list
+          .map(i => `<li>${escapeHtml(i.detail || JSON.stringify(i))}</li>`)
+          .join("");
       }
 
       async function loadDraft() {
@@ -273,7 +288,9 @@
           }
           draftText.value = data.report_text || "";
           currentHeaders = Array.isArray(data.headers) ? data.headers : [];
-          sectionSelect.innerHTML = currentHeaders.map(h => `<option value="${h}">${h}</option>`).join("");
+          sectionSelect.innerHTML = currentHeaders
+            .map(h => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`)
+            .join("");
           if (!currentHeaders.length) {
             sectionSelect.innerHTML = '<option value="">No template sections found</option>';
           }
@@ -362,6 +379,8 @@
       }
       if (saveDraftBtn) {
         saveDraftBtn.addEventListener("click", async () => {
+          if (saveDraftBtn.disabled) return;
+          saveDraftBtn.disabled = true;
           setEditorMessage("Saving draft...");
           try {
             const res = await fetch(`/draft/${jobId}`, {
@@ -374,16 +393,20 @@
             setEditorMessage("Draft saved.");
           } catch (err) {
             setEditorMessage("Save failed: " + err);
+          } finally {
+            saveDraftBtn.disabled = false;
           }
         });
       }
       if (regenSectionBtn) {
         regenSectionBtn.addEventListener("click", async () => {
+          if (regenSectionBtn.disabled) return;
           const section = sectionSelect.value;
           if (!section) {
             setEditorMessage("Pick a section first.");
             return;
           }
+          regenSectionBtn.disabled = true;
           setEditorMessage(`Regenerating "${section}"...`);
           try {
             const res = await fetch(`/regenerate-section/${jobId}`, {
@@ -400,11 +423,15 @@
             setEditorMessage(`Section "${section}" regenerated and PDF rebuilt.`);
           } catch (err) {
             setEditorMessage("Regenerate failed: " + err);
+          } finally {
+            regenSectionBtn.disabled = false;
           }
         });
       }
       if (rebuildPdfBtn) {
         rebuildPdfBtn.addEventListener("click", async () => {
+          if (rebuildPdfBtn.disabled) return;
+          rebuildPdfBtn.disabled = true;
           setEditorMessage("Rebuilding PDF...");
           try {
             const res = await fetch(`/rebuild/${jobId}`, { method: "POST" });
@@ -413,11 +440,15 @@
             setEditorMessage("PDF rebuilt successfully.");
           } catch (err) {
             setEditorMessage("Rebuild failed: " + err);
+          } finally {
+            rebuildPdfBtn.disabled = false;
           }
         });
       }
       if (qualityFixBtn) {
         qualityFixBtn.addEventListener("click", async () => {
+          if (qualityFixBtn.disabled) return;
+          qualityFixBtn.disabled = true;
           setEditorMessage("Applying quality fix...");
           try {
             const res = await fetch(`/quality-fix/${jobId}`, { method: "POST" });
@@ -428,6 +459,8 @@
             setEditorMessage(`Quality fix complete. Remaining issues: ${Number(data.quality_issue_count || 0)}.`);
           } catch (err) {
             setEditorMessage("Quality fix failed: " + err);
+          } finally {
+            qualityFixBtn.disabled = false;
           }
         });
       }

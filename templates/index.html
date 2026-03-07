@@ -1,6 +1,7 @@
 <!doctype html>
 <html>
   <head>
+    <!-- Main submission UI for creating report jobs. -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Report Copilot</title>
@@ -171,16 +172,136 @@
         padding: 10px;
         white-space: pre-wrap;
       }
+      .image-meta-wrap {
+        margin-top: 10px;
+        border: 1px solid #d7e4ec;
+        border-radius: 12px;
+        background: #f9fcff;
+        padding: 10px;
+      }
+      .image-meta-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .image-meta-count {
+        font-size: 12px;
+        color: #315066;
+        font-weight: 700;
+      }
+      #imageMetaList {
+        max-height: 340px;
+        overflow: auto;
+        padding-right: 4px;
+      }
+      .image-meta-item {
+        border: 1px solid #dbe4ea;
+        border-radius: 10px;
+        background: #fff;
+        margin-top: 8px;
+        overflow: hidden;
+      }
+      .image-meta-item.drag-over {
+        border-color: #80bcb6;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, .12);
+      }
+      .image-meta-item summary {
+        list-style: none;
+      }
+      .image-meta-item summary::-webkit-details-marker {
+        display: none;
+      }
+      .image-meta-item[open] .image-head {
+        border-bottom: 1px solid #e5edf3;
+      }
+      .image-meta-item .file {
+        font-size: 12px;
+        color: #2f4e63;
+      }
+      .image-file {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .image-thumb {
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        border: 1px solid #d8e5ef;
+        background: #f4f8fb;
+        object-fit: cover;
+        flex: 0 0 auto;
+      }
+      .image-file-text {
+        min-width: 0;
+      }
+      .image-file-text strong {
+        display: inline-block;
+        margin-right: 6px;
+      }
+      .image-file-text .name {
+        word-break: break-word;
+      }
+      .image-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        cursor: pointer;
+        padding: 10px;
+      }
+      .image-head-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .image-chip {
+        border: 1px solid #cddde8;
+        border-radius: 999px;
+        background: #f2f7fb;
+        color: #2f4e63;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+      }
+      .drag-handle {
+        border: 1px solid #cfd9df;
+        border-radius: 8px;
+        background: #f7fafc;
+        color: #3a596e;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 4px 8px;
+        cursor: grab;
+        user-select: none;
+      }
+      .drag-handle:active {
+        cursor: grabbing;
+      }
+      .image-body {
+        padding: 10px;
+        background: #fbfdff;
+      }
+      .image-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
       .hidden { display: none !important; }
       @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       @media (max-width: 760px) {
         .row { grid-template-columns: 1fr; }
+      .image-grid { grid-template-columns: 1fr; }
       .card { padding: 16px; }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
+      <!-- Hero + high-level app context. -->
       <div class="hero">
         <span class="kicker">AI Workflow</span>
         <h1>Report Copilot</h1>
@@ -188,7 +309,8 @@
         <div id="runtimeBanner" class="runtime-banner">Loading runtime settings...</div>
       </div>
       <div class="card">
-        <form id="runForm">
+      <!-- Primary run form: template selection, inputs, and generation options. -->
+      <form id="runForm">
           <div class="section">
             <p class="section-title">Template & Sources</p>
 
@@ -211,6 +333,19 @@
               <input id="csvInput" type="file" name="data_csv" accept=".csv,text/csv" />
               <div id="csvNote" class="note">Required for lab_report and data_insights.</div>
             </div>
+          </div>
+
+          <div id="imageWrap">
+            <label id="imageLabel"><span class="field-icon">▧</span>Lab Images (optional)</label>
+            <input id="imageInput" type="file" name="lab_images" accept="image/*" multiple />
+            <div id="imageNote" class="note">Optional for lab reports: upload setup/results images to include in the PDF.</div>
+          </div>
+          <div id="imageMetaWrap" class="image-meta-wrap hidden">
+            <div class="image-meta-head">
+              <div class="note">Optional: click an image row to edit title/caption/target section.</div>
+              <div id="imageMetaCount" class="image-meta-count"></div>
+            </div>
+            <div id="imageMetaList"></div>
           </div>
 
           <label><span class="field-icon">✎</span>Manual / Notes Text (optional if PDF uploaded)</label>
@@ -259,6 +394,10 @@
           <label><span class="field-icon">≋</span>Extra instructions (optional)</label>
           <textarea id="extraInstructions" name="extra_instructions" placeholder="Tone, formatting rules, etc."></textarea>
 
+          <label><span class="field-icon">◳</span>Print profile</label>
+          <select id="printProfileSelect" name="print_profile"></select>
+          <div id="printProfileNote" class="note">Adjusts page density, figure sizing, and print styling.</div>
+
           <div id="reviewRow" class="checkrow">
             <input type="checkbox" id="include_review" name="include_review" value="1" />
             <label for="include_review">Include reviewer feedback section</label>
@@ -271,6 +410,7 @@
 
         <div id="output" class="out" style="display:none;"></div>
       </div>
+      <!-- Recent jobs panel for quick navigation and download access. -->
       <details class="recent" id="recentPanel">
         <summary>Recent Jobs</summary>
         <div id="recentJobs" class="jobs-grid" style="margin-top:10px;">
@@ -279,7 +419,9 @@
       </details>
     </div>
 
+    <!-- Client-side behavior for dynamic form toggles and API calls. -->
     <script>
+      // Cache DOM references once; this keeps runtime handlers small and fast.
       const form = document.getElementById("runForm");
       const out = document.getElementById("output");
       const btn = document.getElementById("runBtn");
@@ -289,6 +431,13 @@
       const csvInput = document.getElementById("csvInput");
       const csvLabel = document.getElementById("csvLabel");
       const csvNote = document.getElementById("csvNote");
+      const imageWrap = document.getElementById("imageWrap");
+      const imageInput = document.getElementById("imageInput");
+      const imageLabel = document.getElementById("imageLabel");
+      const imageNote = document.getElementById("imageNote");
+      const imageMetaWrap = document.getElementById("imageMetaWrap");
+      const imageMetaList = document.getElementById("imageMetaList");
+      const imageMetaCount = document.getElementById("imageMetaCount");
       const includeReview = document.getElementById("include_review");
       const reviewRow = document.getElementById("reviewRow");
       const reviewNote = document.getElementById("reviewNote");
@@ -296,10 +445,17 @@
       const goalInput = document.getElementById("goalInput");
       const manualText = document.getElementById("manualText");
       const extraInstructions = document.getElementById("extraInstructions");
+      const printProfileSelect = document.getElementById("printProfileSelect");
+      const printProfileNote = document.getElementById("printProfileNote");
       const runtimeBanner = document.getElementById("runtimeBanner");
       const recentJobs = document.getElementById("recentJobs");
       const recentPanel = document.getElementById("recentPanel");
+      let currentTemplateSections = [];
+      let currentTemplateAllowsImages = false;
+      let imageEntries = [];
+      let dragFromId = "";
 
+      // Fallback config keeps UI usable even if /template-configs is temporarily unavailable.
       const fallbackTemplates = {
         lab_report: {
           display_name: "Lab / Technical Report",
@@ -312,6 +468,7 @@
             allow_csv: true,
             require_csv: true,
             allow_review: true,
+            allow_images: true,
             goal_min_len: 0,
             goal_placeholder: "e.g., Generate a submission-ready report.",
             manual_placeholder: "Paste manual / notes here...",
@@ -329,6 +486,7 @@
             allow_csv: true,
             require_csv: true,
             allow_review: false,
+            allow_images: false,
             goal_min_len: 10,
             goal_placeholder: "e.g., Summarize trends and recommendations for stakeholders.",
             manual_placeholder: "Paste business context, KPI definitions, and reporting goals...",
@@ -346,6 +504,7 @@
             allow_csv: false,
             require_csv: false,
             allow_review: false,
+            allow_images: false,
             goal_min_len: 0,
             goal_placeholder: "e.g., Build an exam-focused study guide from the notes.",
             manual_placeholder: "Paste lecture notes, textbook snippets, or review points...",
@@ -354,7 +513,19 @@
         },
       };
 
+      // Fallback print profiles mirror backend defaults.
+      const fallbackPrintProfiles = {
+        default: "standard",
+        options: [
+          { key: "standard", label: "Standard", description: "Balanced readability and page count for general submission." },
+          { key: "dense", label: "Dense", description: "Fits more content per page with tighter spacing." },
+          { key: "presentation", label: "Presentation", description: "Larger typography and visuals for easier on-screen reading." },
+          { key: "print_safe", label: "Print-Safe", description: "High-contrast grayscale-friendly styling for physical print." },
+        ],
+      };
+
       function renderTemplateOptions(templates, selected) {
+        // Render template dropdown from backend/fallback config.
         const entries = Object.entries(templates || {});
         if (!entries.length) return;
         templateSelect.innerHTML = entries
@@ -363,7 +534,30 @@
         templateSelect.value = selected && templates[selected] ? selected : entries[0][0];
       }
 
+      function renderPrintProfileOptions(cfg) {
+        // Populate print-profile dropdown and sync helper description text.
+        if (!printProfileSelect) return;
+        const options = Array.isArray(cfg && cfg.options) ? cfg.options : [];
+        if (!options.length) return;
+        printProfileSelect.innerHTML = options
+          .map((o) => `<option value="${escapeHtml(o.key || "")}">${escapeHtml(o.label || o.key || "")}</option>`)
+          .join("");
+        const defaultKey = (cfg && cfg.default) || "standard";
+        const hasDefault = options.some((o) => (o.key || "") === defaultKey);
+        printProfileSelect.value = hasDefault ? defaultKey : (options[0].key || "standard");
+
+        const onChange = () => {
+          const current = options.find((o) => (o.key || "") === printProfileSelect.value);
+          printProfileNote.textContent = current && current.description
+            ? current.description
+            : "Adjusts page density, figure sizing, and print styling.";
+        };
+        printProfileSelect.onchange = onChange;
+        onChange();
+      }
+
       function renderRuntime(runtime) {
+        // Surface runtime guardrails (rate limit/admin protection) in the UI.
         if (!runtimeBanner) return;
         if (!runtime) {
           runtimeBanner.textContent = "Runtime settings unavailable.";
@@ -380,19 +574,168 @@
           `Run rate limiter: ${limiterOn} (${limitMsg})`;
       }
 
+      function escapeHtml(s) {
+        // Prevent HTML injection when rendering untrusted strings.
+        return String(s || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function makeImageEntryId(file, index) {
+        // Deterministic id per selected file instance.
+        return `${file.name}__${file.size}__${file.lastModified}__${index}`;
+      }
+
+      function releaseImagePreviews() {
+        // Release object URLs to avoid leaking memory as image selections change.
+        imageEntries.forEach((entry) => {
+          if (entry && entry.previewUrl) {
+            try { URL.revokeObjectURL(entry.previewUrl); } catch (_) {}
+          }
+        });
+      }
+
+      function readImageEntriesFromInput() {
+        // Materialize selected files into editable metadata rows.
+        releaseImagePreviews();
+        const files = imageInput && imageInput.files ? Array.from(imageInput.files) : [];
+        imageEntries = files.map((file, idx) => ({
+          id: makeImageEntryId(file, idx),
+          file,
+          title: "",
+          caption: "",
+          section: "",
+          previewUrl: URL.createObjectURL(file),
+        }));
+      }
+
+      function renderImageMetadataFields() {
+        // Build reorderable image metadata cards (title/caption/target section).
+        if (!imageMetaWrap || !imageMetaList || !imageInput) return;
+        if (!currentTemplateAllowsImages) {
+          imageMetaWrap.classList.add("hidden");
+          imageMetaList.innerHTML = "";
+          releaseImagePreviews();
+          imageEntries = [];
+          return;
+        }
+
+        if (!imageEntries.length) {
+          imageMetaWrap.classList.add("hidden");
+          imageMetaList.innerHTML = "";
+          if (imageMetaCount) imageMetaCount.textContent = "";
+          return;
+        }
+
+        imageMetaWrap.classList.remove("hidden");
+        if (imageMetaCount) imageMetaCount.textContent = `${imageEntries.length} image${imageEntries.length === 1 ? "" : "s"}`;
+        const sectionOptions = ['<option value="">Auto placement</option>']
+          .concat((currentTemplateSections || []).map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`))
+          .join("");
+
+        imageMetaList.innerHTML = imageEntries.map((entry, idx) => `
+          <details class="image-meta-item" draggable="true" data-image-id="${escapeHtml(entry.id)}" ${idx === 0 ? "open" : ""}>
+            <summary class="image-head">
+              <div class="image-file">
+                <img class="image-thumb" src="${escapeHtml(entry.previewUrl || "")}" alt="Image ${idx + 1} preview" />
+                <div class="file image-file-text"><strong>Image ${idx + 1}</strong><span class="name">${escapeHtml(entry.file.name)}</span></div>
+              </div>
+              <div class="image-head-right">
+                <span class="image-chip">${entry.section ? escapeHtml(entry.section) : "Auto placement"}</span>
+                <span class="drag-handle">Drag</span>
+              </div>
+            </summary>
+            <div class="image-body">
+              <div class="image-grid">
+                <div>
+                  <label>Title (optional)</label>
+                  <input type="text" data-meta="title" data-image-id="${escapeHtml(entry.id)}" value="${escapeHtml(entry.title)}" placeholder="e.g., Apparatus setup before trial" />
+                </div>
+                <div>
+                  <label>Target section (optional)</label>
+                  <select data-meta="section" data-image-id="${escapeHtml(entry.id)}">${sectionOptions}</select>
+                </div>
+              </div>
+            <label>Caption (optional)</label>
+            <textarea data-meta="caption" data-image-id="${escapeHtml(entry.id)}" placeholder="e.g., Shows thermocouple placement and measurement positions." style="min-height:80px;">${escapeHtml(entry.caption)}</textarea>
+            </div>
+          </details>
+        `).join("");
+
+        imageMetaList.querySelectorAll("select[data-meta='section']").forEach((el) => {
+          const id = el.getAttribute("data-image-id");
+          const entry = imageEntries.find((x) => x.id === id);
+          if (entry) el.value = entry.section || "";
+        });
+
+        imageMetaList.querySelectorAll("input[data-meta], textarea[data-meta], select[data-meta]").forEach((el) => {
+          const sync = () => {
+            // Keep in-memory metadata model aligned with form edits.
+            const id = el.getAttribute("data-image-id");
+            const meta = el.getAttribute("data-meta");
+            const entry = imageEntries.find((x) => x.id === id);
+            if (!entry || !meta) return;
+            if (meta === "title") entry.title = el.value || "";
+            if (meta === "caption") entry.caption = el.value || "";
+            if (meta === "section") entry.section = el.value || "";
+          };
+          el.addEventListener("input", sync);
+          el.addEventListener("change", sync);
+        });
+
+        imageMetaList.querySelectorAll(".image-meta-item[draggable='true']").forEach((card) => {
+          // Drag-and-drop controls output image order used in PDF generation.
+          card.addEventListener("dragstart", () => {
+            dragFromId = card.getAttribute("data-image-id") || "";
+          });
+          card.addEventListener("dragover", (ev) => {
+            ev.preventDefault();
+            card.classList.add("drag-over");
+          });
+          card.addEventListener("dragleave", () => {
+            card.classList.remove("drag-over");
+          });
+          card.addEventListener("drop", (ev) => {
+            ev.preventDefault();
+            card.classList.remove("drag-over");
+            const toId = card.getAttribute("data-image-id") || "";
+            if (!dragFromId || !toId || dragFromId === toId) return;
+            const fromIdx = imageEntries.findIndex((x) => x.id === dragFromId);
+            const toIdx = imageEntries.findIndex((x) => x.id === toId);
+            if (fromIdx < 0 || toIdx < 0) return;
+            const [moved] = imageEntries.splice(fromIdx, 1);
+            imageEntries.splice(toIdx, 0, moved);
+            dragFromId = "";
+            renderImageMetadataFields();
+          });
+          card.addEventListener("dragend", () => {
+            dragFromId = "";
+            imageMetaList.querySelectorAll(".image-meta-item.drag-over").forEach((n) => n.classList.remove("drag-over"));
+          });
+        });
+      }
+
       function applyTemplateUi(key, cfg) {
+        // Enforce template-specific UI constraints (CSV/images/review placeholders).
         if (!cfg) return;
         const schema = cfg.form_schema || {};
         const allowCsv = schema.allow_csv !== false;
         const requireCsv = !!schema.require_csv;
         const allowReview = schema.allow_review !== false;
+        const allowImages = !!schema.allow_images;
         const goalMinLen = Number(schema.goal_min_len || 0);
 
         const sections = Array.isArray(cfg.writer_format) ? cfg.writer_format : [];
+        currentTemplateSections = sections;
+        currentTemplateAllowsImages = allowImages;
         const sectionPreview = sections.length ? sections.join(" | ") : "No fixed sections";
         templateHint.textContent =
           `Template: ${cfg.display_name}\n` +
           `CSV: ${requireCsv ? "Required" : (allowCsv ? "Optional" : "Not allowed")}\n` +
+          `Images: ${allowImages ? "Allowed" : "Not allowed"}\n` +
           `Review section: ${allowReview ? "Available" : "Not available"}\n` +
           `Goal min length: ${goalMinLen} chars\n` +
           `Expected sections: ${sectionPreview}`;
@@ -409,8 +752,27 @@
             ? "Optional: upload CSV to include data analysis and plots."
             : "Optional: upload CSV for additional context.";
         } else {
+          // Hide and clear CSV when disallowed to avoid invalid submissions.
           csvWrap.classList.add("hidden");
           csvInput.value = "";
+        }
+
+        if (allowImages) {
+          imageWrap.classList.remove("hidden");
+          imageLabel.innerHTML = '<span class="field-icon">▧</span>Lab Images (optional)';
+          imageNote.textContent = "Optional: upload setup/results images to include in the PDF and reference in relevant sections.";
+          imageInput.disabled = false;
+          if (imageEntries.length === 0) readImageEntriesFromInput();
+          renderImageMetadataFields();
+        } else {
+          // Hide and clear image metadata state when template disallows images.
+          imageWrap.classList.add("hidden");
+          imageInput.value = "";
+          imageInput.disabled = true;
+          releaseImagePreviews();
+          imageEntries = [];
+          if (imageMetaWrap) imageMetaWrap.classList.add("hidden");
+          if (imageMetaList) imageMetaList.innerHTML = "";
         }
 
         if (allowReview) {
@@ -419,6 +781,7 @@
           includeReview.checked = true;
           reviewNote.textContent = "Unchecked = the PDF will not include the Review section.";
         } else {
+          // Keep review checkbox visible but locked so behavior is explicit to users.
           reviewRow.classList.remove("hidden");
           includeReview.checked = false;
           includeReview.disabled = true;
@@ -432,8 +795,10 @@
       }
 
       async function initTemplateUi() {
+        // Boot sequence: fetch live config, then fall back locally if request fails.
         let templates = fallbackTemplates;
         let defaultTemplate = templateSelect.value || "lab_report";
+        let printProfiles = fallbackPrintProfiles;
 
         try {
           const res = await fetch("/template-configs");
@@ -445,6 +810,9 @@
             if (data && data.default_template) {
               defaultTemplate = data.default_template;
             }
+            if (data && data.print_profiles && Array.isArray(data.print_profiles.options) && data.print_profiles.options.length) {
+              printProfiles = data.print_profiles;
+            }
             renderRuntime(data && data.runtime ? data.runtime : null);
           }
         } catch (_) {
@@ -453,14 +821,22 @@
         }
 
         renderTemplateOptions(templates, defaultTemplate);
+        renderPrintProfileOptions(printProfiles);
         applyTemplateUi(templateSelect.value, templates[templateSelect.value]);
 
         templateSelect.addEventListener("change", () => {
           applyTemplateUi(templateSelect.value, templates[templateSelect.value]);
         });
+        if (imageInput) {
+          imageInput.addEventListener("change", () => {
+            readImageEntriesFromInput();
+            renderImageMetadataFields();
+          });
+        }
       }
 
       function statusClass(s) {
+        // Map backend states to CSS pills.
         if (s === "done") return "done";
         if (s === "running") return "running";
         if (s === "failed") return "failed";
@@ -469,6 +845,7 @@
       }
 
       async function cancelRecentJob(jobId, btn) {
+        // Fire-and-refresh action from recent jobs panel.
         if (btn) btn.disabled = true;
         try {
           await fetch(`/cancel/${jobId}`, { method: "POST" });
@@ -477,6 +854,7 @@
       }
 
       async function retryRecentJob(jobId, btn) {
+        // Retry returns a new job id; redirect immediately on success.
         if (btn) btn.disabled = true;
         try {
           const res = await fetch(`/retry/${jobId}`, { method: "POST" });
@@ -490,6 +868,7 @@
       }
 
       async function loadRecentJobs() {
+        // Lightweight polling endpoint for recent history cards.
         if (!recentJobs) return;
         try {
           const showAll = !!(window.localStorage && localStorage.getItem("recent_show_all") === "1");
@@ -533,6 +912,7 @@
             b.addEventListener("click", () => retryRecentJob(b.getAttribute("data-retry"), b));
           });
 
+          // Inject local UI control for including synthetic/test jobs.
           const controls = document.createElement("div");
           controls.className = "recent-controls";
           controls.innerHTML = `
@@ -552,6 +932,7 @@
       }
 
       form.addEventListener("submit", async (e) => {
+        // Submit flow: sanitize FormData and redirect to job page on accepted queue.
         e.preventDefault();
         out.style.display = "block";
         out.textContent = "Submitting job...";
@@ -559,14 +940,27 @@
 
         const fd = new FormData(form);
 
-        // Do not send empty file fields
+        // Do not send empty file fields; this keeps backend validation deterministic.
         const manualInput = form.querySelector('input[name="manual_pdf"]');
         const csvInput = form.querySelector('input[name="data_csv"]');
+        const imageInput = form.querySelector('input[name="lab_images"]');
 
         if (!manualInput.files || manualInput.files.length === 0) fd.delete("manual_pdf");
         if (!csvInput.files || csvInput.files.length === 0) fd.delete("data_csv");
+        fd.delete("lab_images");
+        fd.delete("lab_image_titles");
+        fd.delete("lab_image_captions");
+        fd.delete("lab_image_sections");
+        if (imageEntries.length > 0) {
+          imageEntries.forEach((entry) => {
+            fd.append("lab_images", entry.file, entry.file.name);
+            fd.append("lab_image_titles", entry.title || "");
+            fd.append("lab_image_captions", entry.caption || "");
+            fd.append("lab_image_sections", entry.section || "");
+          });
+        }
 
-        // Ensure checkbox default is sent (backend expects Form("0"))
+        // Ensure checkbox default is sent (backend expects Form("0")).
         if (!fd.has("include_review")) fd.set("include_review", "0");
 
         try {
@@ -589,6 +983,8 @@
 
       initTemplateUi();
       loadRecentJobs();
+      // Release blob URLs if user leaves page without submitting.
+      window.addEventListener("beforeunload", releaseImagePreviews);
     </script>
   </body>
 </html>

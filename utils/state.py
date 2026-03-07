@@ -1,3 +1,5 @@
+"""Utility helpers for state."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -29,17 +31,28 @@ class JobState:
 def state_path(job_dir: Path) -> Path:
     return job_dir / "state.json"
 
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
 def write_state(job_dir: Path, state: JobState) -> None:
     state.updated_at = _utc_now()
     p = state_path(job_dir)
-    p.write_text(json.dumps(asdict(state), indent=2), encoding="utf-8")
+    _atomic_write_json(p, asdict(state))
 
 def read_state(job_dir: Path) -> Optional[JobState]:
     p = state_path(job_dir)
     if not p.exists():
         return None
-    data = json.loads(p.read_text(encoding="utf-8"))
-    return JobState(**data)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return JobState(**data)
+    except Exception:
+        return None
 
 def new_state(job_id: str) -> JobState:
     now = _utc_now()

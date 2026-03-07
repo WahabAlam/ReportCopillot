@@ -1,6 +1,9 @@
+"""Tests for test api run."""
+
 from __future__ import annotations
 
 import json
+import base64
 import time
 import threading
 from pathlib import Path
@@ -8,8 +11,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
-from utils.jobs import job_dir, write_job_debug, write_job_text, read_job_text
+from utils.jobs import job_dir, write_job_debug, write_job_text, read_job_text, read_job_debug
 from utils.state import new_state, write_state, read_state
+
+
+_PNG_1X1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7+o2kAAAAASUVORK5CYII="
+)
 
 
 def test_run_endpoint_completes_job_with_mock_llm(monkeypatch):
@@ -24,7 +32,7 @@ def test_run_endpoint_completes_job_with_mock_llm(monkeypatch):
         "include_review": "0",
     }
     resp = client.post("/run", data=payload)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "queued"
     assert body["stage"] == "queued"
@@ -63,7 +71,7 @@ def test_run_endpoint_marks_failed_when_llm_config_missing(monkeypatch):
         "include_review": "0",
     }
     resp = client.post("/run", data=payload)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "queued"
     job_id = body["job_id"]
@@ -148,6 +156,7 @@ def test_worker_transitions_to_canceled_when_cancel_requested(monkeypatch):
         manual_text: str,
         goal: str,
         csv_path: str | None,
+        image_assets: list[dict] | None,
         extra_instructions: str,
         template_cfg: dict | None,
         include_review: bool,
@@ -180,6 +189,7 @@ def test_worker_transitions_to_canceled_when_cancel_requested(monkeypatch):
             "goal": "g",
             "csv_path": None,
             "extra_instructions": "",
+            "print_profile": "standard",
             "template": "study_guide",
             "template_cfg": {"include_plots": False, "include_review": False},
             "include_review_bool": False,
@@ -208,9 +218,27 @@ def test_template_configs_exposes_form_schema():
     body = resp.json()
     assert "templates" in body
     assert "form_schema" in body["templates"]["study_guide"]
+    assert "print_profiles" in body
+    assert body["print_profiles"]["default"] == "standard"
+    assert any(o["key"] == "dense" for o in body["print_profiles"]["options"])
     assert "runtime" in body
     assert "run_rate_limit_enabled" in body["runtime"]
     assert "use_rq_queue" in body["runtime"]
+
+
+def test_run_rejects_invalid_print_profile():
+    client = TestClient(main.app)
+    payload = {
+        "template": "study_guide",
+        "manual_text": "notes",
+        "goal": "study",
+        "extra_instructions": "",
+        "include_review": "0",
+        "print_profile": "not_real",
+    }
+    resp = client.post("/run", data=payload)
+    assert resp.status_code == 400
+    assert "Invalid print_profile" in resp.json()["detail"]
 
 
 def test_run_rejects_csv_for_study_guide():
@@ -227,6 +255,20 @@ def test_run_rejects_csv_for_study_guide():
     assert "does not accept CSV uploads" in resp.json()["detail"]
 
 
+def test_run_rejects_images_for_study_guide():
+    client = TestClient(main.app)
+    payload = {
+        "template": "study_guide",
+        "manual_text": "notes",
+        "goal": "study",
+        "extra_instructions": "",
+    }
+    files = {"lab_images": ("setup.png", _PNG_1X1, "image/png")}
+    resp = client.post("/run", data=payload, files=files)
+    assert resp.status_code == 400
+    assert "does not accept image uploads" in resp.json()["detail"]
+
+
 def test_run_rejects_review_for_template_without_review():
     client = TestClient(main.app)
     payload = {
@@ -240,6 +282,52 @@ def test_run_rejects_review_for_template_without_review():
     resp = client.post("/run", data=payload, files=files)
     assert resp.status_code == 400
     assert "does not support reviewer feedback" in resp.json()["detail"]
+
+
+def test_run_accepts_lab_images_and_persists_assets(monkeypatch):
+    monkeypatch.setenv("MOCK_LLM", "1")
+    client = TestClient(main.app)
+    payload = {
+        "template": "lab_report",
+        "manual_text": "lab notes",
+        "goal": "Generate a detailed lab report.",
+        "extra_instructions": "",
+        "include_review": "0",
+    }
+    files = [
+        ("data_csv", ("x.csv", b"time,temp\n0,20\n1,22\n2,25\n", "text/csv")),
+        ("lab_images", ("setup.png", _PNG_1X1, "image/png")),
+        ("lab_images", ("results.png", _PNG_1X1, "image/png")),
+        ("lab_image_titles", (None, "Apparatus setup")),
+        ("lab_image_titles", (None, "End-state result")),
+        ("lab_image_captions", (None, "Shows the full setup before heating begins.")),
+        ("lab_image_captions", (None, "Shows final state after the run.")),
+        ("lab_image_sections", (None, "Apparatus & Procedure")),
+        ("lab_image_sections", (None, "Results")),
+    ]
+    resp = client.post("/run", data=payload, files=files)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["summary"]["image_count"] == 2
+
+    job_id = body["job_id"]
+    last_status = None
+    for _ in range(50):
+        s = client.get(f"/status/{job_id}")
+        assert s.status_code == 200
+        last_status = s.json()["status"]
+        if last_status in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert last_status == "done"
+
+    dbg = read_job_debug(job_id)
+    image_assets = (dbg.get("request_payload") or {}).get("image_assets") or []
+    assert len(image_assets) == 2
+    assert image_assets[0]["label"] == "Image 1"
+    assert image_assets[0]["title"] == "Apparatus setup"
+    assert image_assets[0]["caption"].startswith("Shows the full setup")
+    assert image_assets[0]["target_section"] == "Apparatus & Procedure"
 
 
 def test_cancel_and_cleanup_require_admin_key_when_configured(monkeypatch):

@@ -1,3 +1,5 @@
+"""Pydantic schemas shared across agents and orchestration layers."""
+
 # schemas.py
 from __future__ import annotations
 

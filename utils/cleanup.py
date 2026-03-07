@@ -1,3 +1,5 @@
+"""Utility helpers for cleanup."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict

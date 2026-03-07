@@ -1,3 +1,5 @@
+"""Utility helpers for llm."""
+
 # utils/llm.py
 import os
 import hashlib
@@ -93,6 +95,20 @@ def _mock_response(system: str, user: str) -> str:
     if "careful reviewer" in sys_low:
         return user.replace("REPORT TO REVIEW:", "REVISED REPORT:").strip() + f"\n\n(Reviewed {h})"
 
+    if "write exactly one section" in sys_low:
+        section = "Section"
+        for ln in user.splitlines():
+            if ln.strip().lower().startswith("section header:"):
+                section = ln.split(":", 1)[1].strip() or section
+                break
+        source_tag = "S1"
+        for ln in user.splitlines():
+            s = ln.strip()
+            if s.startswith("[S") and s.endswith("]"):
+                source_tag = s.strip("[]")
+                break
+        return f"Mock detailed content for {section} ({h}). [{source_tag}]"
+
     # writer / default
     headers = _extract_headers_from_system(system)
     if not headers:
@@ -128,6 +144,8 @@ def chat(system: str, user: str) -> str:
                 temperature=0.2,
                 timeout=timeout_s,
             )
+            if not getattr(resp, "choices", None):
+                raise LLMError("Model returned no choices")
             content = resp.choices[0].message.content
             if not content:
                 raise LLMError("Empty model response")

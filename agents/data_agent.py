@@ -1,3 +1,5 @@
+"""Agent implementation for data agent."""
+
 # agents/data_agent.py
 from __future__ import annotations
 
@@ -24,6 +26,18 @@ def _detect_time_column(columns: list[str]) -> str | None:
         if c.lower().startswith("time"):
             return c
     return None
+
+
+def _detect_numeric_columns(df: pd.DataFrame) -> list[str]:
+    numeric_cols = list(df.select_dtypes(include="number").columns)
+    if numeric_cols:
+        return numeric_cols
+    inferred: list[str] = []
+    for col in df.columns:
+        s = pd.to_numeric(df[col], errors="coerce")
+        if int(s.notna().sum()) >= 2:
+            inferred.append(str(col))
+    return inferred
 
 
 def _iqr_outlier_count(s: pd.Series) -> int:
@@ -135,8 +149,9 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
             return AgentResult.success("data", job_id, payload={"data_summary": {}})
 
         df = pd.read_csv(csv_path)
-        numeric_columns = list(df.select_dtypes(include="number").columns)
+        numeric_columns = _detect_numeric_columns(df)
         all_columns = list(df.columns)
+        numeric_df = df[numeric_columns].apply(pd.to_numeric, errors="coerce") if numeric_columns else pd.DataFrame()
 
         out = {
             "n_total": int(df.shape[0]),
@@ -161,7 +176,7 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
             numeric_summary = {}
             outliers = {}
             for col in numeric_columns:
-                s = df[col]
+                s = numeric_df[col]
                 numeric_summary[col] = {
                     "min": _safe_float(s.min()),
                     "max": _safe_float(s.max()),
@@ -177,11 +192,12 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
         if time_col and numeric_columns:
             y_candidates = [c for c in numeric_columns if c != time_col]
             if y_candidates:
-                out["auto_analysis"]["primary_trend"] = _linear_trend(df, time_col, y_candidates[0])
+                trend_df = pd.DataFrame({time_col: df[time_col], y_candidates[0]: numeric_df[y_candidates[0]]})
+                out["auto_analysis"]["primary_trend"] = _linear_trend(trend_df, time_col, y_candidates[0])
 
         if len(numeric_columns) >= 2:
             out["auto_analysis"]["numeric_candidates"] = numeric_columns
-            corr = df[numeric_columns].corr(numeric_only=True)
+            corr = numeric_df.corr(numeric_only=True)
             pairs = []
             for i, a in enumerate(numeric_columns):
                 for b in numeric_columns[i + 1 :]:

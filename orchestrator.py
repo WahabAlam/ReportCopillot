@@ -1,3 +1,5 @@
+"""Pipeline orchestrator that runs agents and assembles final artifacts."""
+
 # orchestrator.py
 from __future__ import annotations
 
@@ -12,13 +14,17 @@ from agents.diagram_agent import run as diagram_run
 
 from schemas import AgentResult
 from utils.quality_gate import evaluate_report_quality, build_quality_fix_prompt
+from utils.retrieval import build_source_chunks
 
 
 class CancelledError(RuntimeError):
+    """Raised when the worker receives a cooperative cancellation signal."""
+
     pass
 
 
 def _merge_instructions(template_cfg: dict, extra_instructions: str) -> str:
+    # Keep template-level guidance and per-run overrides in one deterministic text block.
     template_instructions = (template_cfg.get("instructions") or "").strip()
     extra_instructions = (extra_instructions or "").strip()
     merged = "\n\n".join([s for s in [template_instructions, extra_instructions] if s])
@@ -26,6 +32,7 @@ def _merge_instructions(template_cfg: dict, extra_instructions: str) -> str:
 
 
 def _repair_prompt(missing_headers: list[str], template_cfg: dict) -> str:
+    # Force a full rewrite when required section headers are missing.
     required = template_cfg.get("writer_format", [])
     required_list = ", ".join([f"{h}:" for h in required]) if required else "(none)"
     missing_list = ", ".join([f"{h}:" for h in missing_headers])
@@ -47,30 +54,41 @@ def run_pipeline(
     manual_text: str,
     goal: str,
     csv_path: str | None,
+    image_assets: list[dict] | None = None,
     extra_instructions: str,
     template_cfg: dict | None = None,
     include_review: bool = False,
     progress_cb: Callable[[str, dict], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> dict:
+    # Normalize optional config once so downstream agents receive a stable context object.
     template_cfg = template_cfg or {}
     merged_instructions = _merge_instructions(template_cfg, extra_instructions)
+    source_chunks = build_source_chunks(
+        manual_text,
+        chunk_chars=int(template_cfg.get("source_chunk_chars", 1200)),
+        overlap_chars=int(template_cfg.get("source_overlap_chars", 160)),
+    )
 
+    # Base context shared with all agents.
     ctx = {
         "manual_text": manual_text,
         "goal": goal,
         "csv_path": csv_path,
+        "image_assets": image_assets or [],
         "preview_rows": int(template_cfg.get("preview_rows", 10)),
         "extra_instructions": merged_instructions,
         "template_cfg": template_cfg,
+        "source_chunks": source_chunks,
     }
     timings_ms: dict[str, int] = {}
 
+    # Cancellation is polled between major stages so work stops at safe boundaries.
     def _check_cancel() -> None:
         if should_cancel and should_cancel():
             raise CancelledError("Job canceled by user.")
 
-    # 1) Research
+    # 1) Research stage: extract theory and facts from manual/notes input.
     _check_cancel()
     if progress_cb:
         progress_cb("research", {"progress_pct": 20})
@@ -82,7 +100,7 @@ def run_pipeline(
     theory_text = r1.payload.get("theory_text", "")
     research_facts = r1.payload.get("research_facts", {}) or {}
 
-    # 2) Data
+    # 2) Data stage: compute dataset summaries/highlights from CSV when present.
     _check_cancel()
     if progress_cb:
         progress_cb("data", {"progress_pct": 35})
@@ -94,7 +112,7 @@ def run_pipeline(
     data_summary = d1.payload.get("data_summary", {})
     data_highlights = d1.payload.get("data_highlights", {}) or {}
 
-    # 3) Writer
+    # 3) Writer stage: synthesize full report draft from research + data outputs.
     _check_cancel()
     if progress_cb:
         progress_cb("writer", {"progress_pct": 55})
@@ -105,6 +123,7 @@ def run_pipeline(
             "research_facts": research_facts,
             "data_summary": data_summary,
             "data_highlights": data_highlights,
+            "image_assets": image_assets or [],
         }
     )
 
@@ -116,8 +135,9 @@ def run_pipeline(
 
     report_text = w1.payload.get("report_text", "")
     sections = w1.payload.get("sections", {}) or {}
+    section_sources = w1.payload.get("section_sources", {}) or {}
 
-    # 3b) Section-based missing detection + auto-fix once
+    # 3b) Structural repair stage: if required sections are missing, do one guided rewrite.
     required_headers = template_cfg.get("writer_format", []) or []
     if required_headers:
         missing = [h for h in required_headers if not (sections.get(h) or "").strip()]
@@ -135,8 +155,9 @@ def run_pipeline(
             if w2.ok and w2.payload.get("report_text"):
                 report_text = w2.payload["report_text"]
                 sections = w2.payload.get("sections", {}) or {}
+                section_sources = w2.payload.get("section_sources", {}) or {}
 
-    # 4) Reviewer (optional)
+    # 4) Reviewer stage (optional): generate feedback text without rewriting report content.
     review_text = ""
     reviewer_status: dict = {"skipped": True}
     if include_review and template_cfg.get("include_review", False):
@@ -155,7 +176,7 @@ def run_pipeline(
         else:
             review_text = ""
 
-    # 5) Figures (optional)
+    # 5) Diagram stage (optional): suggest figure ideas based on theory/data summary.
     figures_text = ""
     diagram_status: dict = {"skipped": True}
     if template_cfg.get("include_figures", True) and data_summary:
@@ -172,7 +193,7 @@ def run_pipeline(
         if dg.ok:
             figures_text = dg.payload.get("figures_text", "")
 
-    # 6) Quality gate + one auto-fix pass
+    # 6) Quality gate: enforce template quality rules; run one repair pass if needed.
     quality = evaluate_report_quality(report_text, template_cfg)
     if not quality["ok"]:
         if progress_cb:
@@ -186,17 +207,22 @@ def run_pipeline(
         if wq.ok and wq.payload.get("report_text"):
             report_text = wq.payload["report_text"]
             sections = wq.payload.get("sections", {}) or {}
+            section_sources = wq.payload.get("section_sources", {}) or {}
         quality = evaluate_report_quality(report_text, template_cfg)
 
+    # Return full payload for worker persistence and PDF assembly.
     return {
         "theory": theory_text,
         "research_facts": research_facts,
         "data_summary": data_summary,
         "data_highlights": data_highlights,
+        "image_assets": image_assets or [],
         "report": report_text,
         "review": review_text,
         "figures": figures_text,
         "report_sections": sections,
+        "section_sources": section_sources,
+        "source_chunks": source_chunks,
         "quality": quality,
         "agent_status": {
             "research": r1.model_dump(),
