@@ -3,8 +3,86 @@
 from __future__ import annotations
 
 import os
+import re
 
 from fastapi import HTTPException
+
+
+_LAYOUT_HEADER_RE = re.compile(r"^[A-Za-z0-9 &/()\-]{2,64}$")
+
+
+def _extract_layout_section_headers(layout_preferences: str, *, max_sections: int = 14) -> list[str]:
+    text = (layout_preferences or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        line = re.sub(r"^\d+[\).\-\s]+", "", line).strip()
+        line = re.sub(r"^[-*•]\s+", "", line).strip()
+        if not line:
+            continue
+
+        lowered = line.lower()
+        if ":" in line and lowered.startswith(("sections:", "section order:", "order:", "layout:")):
+            line = line.split(":", 1)[1].strip()
+
+        if any(sep in line for sep in ("->", "→", "|", ">")):
+            parts = re.split(r"\s*(?:->|→|\||>)\s*", line)
+        elif "," in line:
+            parts = [p.strip() for p in line.split(",")]
+        elif line.endswith(":"):
+            parts = [line[:-1].strip()]
+        else:
+            parts = [line]
+
+        for part in parts:
+            section = part.strip().strip(":").strip()
+            if not section:
+                continue
+            if len(section.split()) > 8:
+                continue
+            if not _LAYOUT_HEADER_RE.fullmatch(section):
+                continue
+            candidates.append(section)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for section in candidates:
+        key = section.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(section)
+        if len(out) >= max_sections:
+            break
+
+    # Require a meaningful structure list; avoid treating one-off prose lines as full layout overrides.
+    if len(out) < 3:
+        return []
+    return out
+
+
+def _merge_generation_preferences(
+    *,
+    extra_instructions: str,
+    lab_format_description: str,
+    layout_preferences: str,
+) -> str:
+    parts: list[str] = []
+    base = (extra_instructions or "").strip()
+    if base:
+        parts.append(base)
+    lab_fmt = (lab_format_description or "").strip()
+    if lab_fmt:
+        parts.append("Lab Format Description:\n" + lab_fmt)
+    layout = (layout_preferences or "").strip()
+    if layout:
+        parts.append("Preferred Output Layout:\n" + layout)
+    return "\n\n".join(parts).strip()
 
 
 async def run_payload(
@@ -20,9 +98,12 @@ async def run_payload(
     group: str,
     date: str,
     goal: str,
+    lab_format_description: str,
+    layout_preferences: str,
     extra_instructions: str,
     print_profile: str,
     data_csv,
+    data_table_text: str,
     lab_images,
     lab_image_titles,
     lab_image_captions,
@@ -32,6 +113,7 @@ async def run_payload(
     get_template_fn,
     normalize_print_profile_fn,
     save_upload_fn,
+    save_table_text_fn,
     pdf_to_text_fn,
     validate_template_inputs_fn,
     validate_csv_fn,
@@ -41,6 +123,7 @@ async def run_payload(
     build_job_summary_fn,
     max_image_uploads: int,
     image_extensions: set[str],
+    tabular_data_extensions: set[str],
 ) -> dict:
     # Throttle early before touching disk/LLM resources.
     check_rate_limit_fn(request)
@@ -83,11 +166,12 @@ async def run_payload(
     # CSV and image assets are optional and template-dependent.
     csv_path = None
     csv_info = {"rows": 0, "cols": 0, "columns": [], "numeric_columns": [], "preview_head": []}
-    has_csv = (
+    has_uploaded_data_file = (
         data_csv is not None
         and getattr(data_csv, "filename", None)
         and data_csv.filename.strip() != ""
     )
+    has_table_data_text = bool((data_table_text or "").strip())
     image_uploads = [
         upload for upload in (lab_images or [])
         if upload is not None and getattr(upload, "filename", None) and str(upload.filename).strip() != ""
@@ -97,17 +181,20 @@ async def run_payload(
     validate_template_inputs_fn(
         template_key=template,
         template_cfg=template_cfg,
-        has_csv=bool(has_csv),
+        has_csv=bool(has_uploaded_data_file or has_table_data_text),
         has_images=bool(has_images),
         include_review_bool=include_review_bool,
         goal=goal,
     )
 
-    if has_csv:
+    if has_uploaded_data_file:
         try:
-            csv_path = save_upload_fn(data_csv, allowed_extensions={".csv"})
+            csv_path = save_upload_fn(data_csv, allowed_extensions=tabular_data_extensions)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        csv_info = validate_csv_fn(csv_path)
+    elif has_table_data_text:
+        csv_path = save_table_text_fn(data_table_text)
         csv_info = validate_csv_fn(csv_path)
 
     image_assets = save_image_uploads_fn(
@@ -121,6 +208,19 @@ async def run_payload(
         image_extensions=image_extensions,
     )
 
+    merged_extra_instructions = _merge_generation_preferences(
+        extra_instructions=extra_instructions,
+        lab_format_description=lab_format_description,
+        layout_preferences=layout_preferences,
+    )
+    layout_section_headers = _extract_layout_section_headers(layout_preferences)
+    if layout_section_headers:
+        merged_extra_instructions = (
+            merged_extra_instructions
+            + "\n\nUser-defined section layout (highest priority):\n"
+            + "\n".join([f"- {h}" for h in layout_section_headers])
+        ).strip()
+
     validate_text_lengths_fn(
         report_title=report_title,
         student_name=student_name,
@@ -129,6 +229,8 @@ async def run_payload(
         date=date,
         goal=goal,
         extra_instructions=extra_instructions,
+        lab_format_description=lab_format_description,
+        layout_preferences=layout_preferences,
         final_manual_text=final_manual_text,
     )
 
@@ -149,7 +251,10 @@ async def run_payload(
         "goal": goal,
         "csv_path": csv_path,
         "image_assets": image_assets,
-        "extra_instructions": extra_instructions,
+        "extra_instructions": merged_extra_instructions,
+        "lab_format_description": lab_format_description,
+        "layout_preferences": layout_preferences,
+        "layout_section_headers": layout_section_headers,
         "print_profile": print_profile,
         "include_review_bool": include_review_bool,
         "csv_info": csv_info,

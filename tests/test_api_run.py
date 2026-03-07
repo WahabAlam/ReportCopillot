@@ -252,7 +252,21 @@ def test_run_rejects_csv_for_study_guide():
     files = {"data_csv": ("x.csv", b"a,b\n1,2\n", "text/csv")}
     resp = client.post("/run", data=payload, files=files)
     assert resp.status_code == 400
-    assert "does not accept CSV uploads" in resp.json()["detail"]
+    assert "does not accept tabular data input" in resp.json()["detail"]
+
+
+def test_run_rejects_table_text_for_study_guide():
+    client = TestClient(main.app)
+    payload = {
+        "template": "study_guide",
+        "manual_text": "notes",
+        "goal": "study",
+        "extra_instructions": "",
+        "data_table_text": "a,b\n1,2\n",
+    }
+    resp = client.post("/run", data=payload)
+    assert resp.status_code == 400
+    assert "does not accept tabular data input" in resp.json()["detail"]
 
 
 def test_run_rejects_images_for_study_guide():
@@ -282,6 +296,176 @@ def test_run_rejects_review_for_template_without_review():
     resp = client.post("/run", data=payload, files=files)
     assert resp.status_code == 400
     assert "does not support reviewer feedback" in resp.json()["detail"]
+
+
+def test_run_rejects_lab_report_without_csv_or_images():
+    client = TestClient(main.app)
+    payload = {
+        "template": "lab_report",
+        "manual_text": "lab notes only",
+        "goal": "Generate a report",
+        "extra_instructions": "",
+        "include_review": "0",
+    }
+    resp = client.post("/run", data=payload)
+    assert resp.status_code == 400
+    assert "requires at least one data source" in resp.json()["detail"]
+
+
+def test_run_accepts_lab_report_with_images_only(monkeypatch):
+    monkeypatch.setenv("MOCK_LLM", "1")
+    client = TestClient(main.app)
+    payload = {
+        "template": "lab_report",
+        "manual_text": "image-based lab notes",
+        "goal": "Generate a detailed report from image evidence.",
+        "extra_instructions": "",
+        "include_review": "0",
+    }
+    files = {"lab_images": ("setup.png", _PNG_1X1, "image/png")}
+    resp = client.post("/run", data=payload, files=files)
+    assert resp.status_code == 200, resp.text
+
+    job_id = resp.json()["job_id"]
+    final_status = None
+    for _ in range(50):
+        s = client.get(f"/status/{job_id}")
+        assert s.status_code == 200
+        final_status = s.json()["status"]
+        if final_status in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert final_status == "done"
+
+
+def test_run_accepts_lab_report_with_table_text_only(monkeypatch):
+    monkeypatch.setenv("MOCK_LLM", "1")
+    client = TestClient(main.app)
+    payload = {
+        "template": "lab_report",
+        "manual_text": "tabular-text lab notes",
+        "goal": "Generate a report from pasted tabular data.",
+        "extra_instructions": "",
+        "include_review": "0",
+        "data_table_text": "time,temp\n0,20\n1,22\n2,25\n",
+    }
+    resp = client.post("/run", data=payload)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    final_status = None
+    for _ in range(50):
+        s = client.get(f"/status/{job_id}")
+        assert s.status_code == 200
+        final_status = s.json()["status"]
+        if final_status in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert final_status == "done"
+
+
+def test_run_merges_lab_format_and_layout_preferences_into_instructions(monkeypatch):
+    monkeypatch.setenv("MOCK_LLM", "1")
+    client = TestClient(main.app)
+    payload = {
+        "template": "lab_report",
+        "manual_text": "lab notes",
+        "goal": "Generate a report",
+        "extra_instructions": "Keep tone concise.",
+        "lab_format_description": "Computer-simulated lab using screenshots only.",
+        "layout_preferences": "Put setup context before results and keep a bullet list in conclusion.",
+        "include_review": "0",
+        "data_table_text": "time,temp\n0,20\n1,22\n",
+    }
+    resp = client.post("/run", data=payload)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    for _ in range(50):
+        s = client.get(f"/status/{job_id}")
+        assert s.status_code == 200
+        if s.json()["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+
+    dbg = read_job_debug(job_id)
+    merged = ((dbg.get("request_payload") or {}).get("extra_instructions") or "")
+    assert "Keep tone concise." in merged
+    assert "Lab Format Description:" in merged
+    assert "Computer-simulated lab using screenshots only." in merged
+    assert "Preferred Output Layout:" in merged
+    assert "Put setup context before results" in merged
+
+
+def test_run_prefers_user_defined_layout_headers(monkeypatch):
+    monkeypatch.setenv("MOCK_LLM", "1")
+    client = TestClient(main.app)
+    payload = {
+        "template": "lab_report",
+        "manual_text": "lab notes",
+        "goal": "Generate a report",
+        "extra_instructions": "",
+        "layout_preferences": (
+            "Section order:\n"
+            "- Context Snapshot\n"
+            "- Setup Notes\n"
+            "- Findings\n"
+            "- Limitations\n"
+            "- Final Verdict\n"
+        ),
+        "include_review": "0",
+        "data_table_text": "time,temp\n0,20\n1,22\n",
+    }
+    resp = client.post("/run", data=payload)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    final_status = None
+    for _ in range(50):
+        s = client.get(f"/status/{job_id}")
+        assert s.status_code == 200
+        final_status = s.json()["status"]
+        if final_status in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert final_status == "done"
+
+    report = read_job_text(job_id, "report.txt")
+    assert "Context Snapshot:" in report
+    assert "Setup Notes:" in report
+    assert "Findings:" in report
+    assert "Final Verdict:" in report
+    assert "Objective:" not in report
+
+    dbg = read_job_debug(job_id)
+    headers = ((dbg.get("request_payload") or {}).get("layout_section_headers") or [])
+    assert headers[:3] == ["Context Snapshot", "Setup Notes", "Findings"]
+
+
+def test_run_accepts_data_insights_tsv_upload(monkeypatch):
+    monkeypatch.setenv("MOCK_LLM", "1")
+    client = TestClient(main.app)
+    payload = {
+        "template": "data_insights",
+        "manual_text": "business context",
+        "goal": "Summarize trends for stakeholders.",
+        "extra_instructions": "",
+        "include_review": "0",
+    }
+    files = {"data_csv": ("kpi.tsv", b"time\tkpi\n0\t100\n1\t110\n2\t120\n", "text/tab-separated-values")}
+    resp = client.post("/run", data=payload, files=files)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    final_status = None
+    for _ in range(50):
+        s = client.get(f"/status/{job_id}")
+        assert s.status_code == 200
+        final_status = s.json()["status"]
+        if final_status in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert final_status == "done"
 
 
 def test_run_accepts_lab_images_and_persists_assets(monkeypatch):

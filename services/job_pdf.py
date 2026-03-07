@@ -7,7 +7,13 @@ import os
 from fastapi import HTTPException
 
 from agents.writer_agent import run as writer_run
-from templates import get_template, DEFAULT_TEMPLATE, TEMPLATES
+from templates import (
+    get_template,
+    DEFAULT_TEMPLATE,
+    TEMPLATES,
+    resolve_template_cfg,
+    apply_layout_section_headers,
+)
 from utils.jobs import (
     job_pdf_path,
     read_job_debug,
@@ -17,16 +23,27 @@ from utils.jobs import (
 )
 from utils.pdf_report import build_submission_pdf
 from utils.plots import generate_plots
-from utils.quality_gate import evaluate_report_quality, build_quality_fix_prompt
+from utils.quality_gate import (
+    evaluate_report_quality,
+    build_quality_fix_prompt,
+    select_quality_fix_sections,
+)
 from utils.retrieval import build_source_chunks
+from utils.sections import split_by_headers
 
 
 def load_template_cfg_for_job(job_id: str, dbg: dict) -> tuple[str, dict]:
     # Prefer explicit template from debug payload; fallback to header-based inference for legacy jobs.
+    req = dbg.get("request_payload") if isinstance(dbg, dict) else {}
+    req = req if isinstance(req, dict) else {}
+    has_csv = bool(req.get("csv_path")) or bool(dbg.get("has_csv"))
+
     template_key = (dbg.get("template") or "").strip()
     if template_key:
         try:
-            return template_key, get_template(template_key)
+            cfg = resolve_template_cfg(get_template(template_key), has_csv=has_csv)
+            cfg = apply_layout_section_headers(cfg, req.get("layout_section_headers") or [])
+            return template_key, cfg
         except KeyError:
             pass
 
@@ -45,7 +62,9 @@ def load_template_cfg_for_job(job_id: str, dbg: dict) -> tuple[str, dict]:
         if score > best_score:
             best_score = score
             best_key = key
-    return best_key, get_template(best_key)
+    cfg = resolve_template_cfg(get_template(best_key), has_csv=has_csv)
+    cfg = apply_layout_section_headers(cfg, req.get("layout_section_headers") or [])
+    return best_key, cfg
 
 
 def rebuild_pdf_for_job(
@@ -134,6 +153,9 @@ def apply_quality_fix_for_job(
     fix_prompt = build_quality_fix_prompt(quality.get("issues", []), template_cfg)
     base_extra = str(req.get("extra_instructions", "") or "").strip()
     merged_extra = (base_extra + "\n\n" + fix_prompt).strip()
+    required_headers = template_cfg.get("writer_format", []) or []
+    existing_sections = split_by_headers(report_text, required_headers) if required_headers else {}
+    rewrite_targets = select_quality_fix_sections(quality.get("issues", []), required_headers)
 
     wr = writer_run_fn(
         job_id=job_id,
@@ -147,6 +169,9 @@ def apply_quality_fix_for_job(
             "image_assets": image_assets,
             "source_chunks": source_chunks,
             "extra_instructions": merged_extra,
+            "rewrite_targets": rewrite_targets,
+            "existing_sections": existing_sections,
+            "existing_section_sources": {},
         },
     )
     if not wr.ok:

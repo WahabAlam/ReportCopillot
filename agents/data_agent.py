@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pandas as pd
 from schemas import AgentResult
+from utils.lab_data import read_tabular_file
 
 
 def _safe_float(v):
@@ -148,7 +149,7 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
         if not csv_path:
             return AgentResult.success("data", job_id, payload={"data_summary": {}})
 
-        df = pd.read_csv(csv_path)
+        df = read_tabular_file(csv_path)
         numeric_columns = _detect_numeric_columns(df)
         all_columns = list(df.columns)
         numeric_df = df[numeric_columns].apply(pd.to_numeric, errors="coerce") if numeric_columns else pd.DataFrame()

@@ -330,8 +330,16 @@
             </div>
             <div id="csvWrap">
               <label id="csvLabel"><span class="field-icon">▤</span>CSV (optional depending on template)</label>
-              <input id="csvInput" type="file" name="data_csv" accept=".csv,text/csv" />
-              <div id="csvNote" class="note">Required for lab_report and data_insights.</div>
+              <input
+                id="csvInput"
+                type="file"
+                name="data_csv"
+                accept=".csv,.tsv,.xlsx,.xls,.json,text/csv,text/tab-separated-values,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              />
+              <div id="csvNote" class="note">Required for data_insights. Lab reports can use CSV, images, or both.</div>
+              <label id="tableTextLabel"><span class="field-icon">▥</span>Tabular Data Text (optional)</label>
+              <textarea id="tableTextInput" name="data_table_text" style="min-height:96px;" placeholder="Paste CSV/TSV rows or a markdown table. File upload takes priority if both are provided."></textarea>
+              <div id="tableTextNote" class="note">Use this when your data is copied from software output and not saved as a file.</div>
             </div>
           </div>
 
@@ -363,6 +371,17 @@
             <div>
               <label><span class="field-icon">◎</span>Goal (optional)</label>
               <input id="goalInput" name="goal" placeholder="e.g., Generate a submission-ready report." />
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label><span class="field-icon">◫</span>Lab format / experiment style (optional)</label>
+              <textarea id="labFormatInput" name="lab_format_description" style="min-height:96px;" placeholder="e.g., Software-simulated circuit lab with screenshots of setup and final output panels."></textarea>
+            </div>
+            <div>
+              <label><span class="field-icon">▦</span>Preferred report layout (optional)</label>
+              <textarea id="layoutPrefsInput" name="layout_preferences" style="min-height:96px;" placeholder="e.g., Put setup evidence in Apparatus, then a step-by-step Results table, then limitations as bullets."></textarea>
             </div>
           </div>
 
@@ -431,6 +450,9 @@
       const csvInput = document.getElementById("csvInput");
       const csvLabel = document.getElementById("csvLabel");
       const csvNote = document.getElementById("csvNote");
+      const tableTextLabel = document.getElementById("tableTextLabel");
+      const tableTextInput = document.getElementById("tableTextInput");
+      const tableTextNote = document.getElementById("tableTextNote");
       const imageWrap = document.getElementById("imageWrap");
       const imageInput = document.getElementById("imageInput");
       const imageLabel = document.getElementById("imageLabel");
@@ -443,6 +465,8 @@
       const reviewNote = document.getElementById("reviewNote");
       const reportTitle = document.getElementById("reportTitle");
       const goalInput = document.getElementById("goalInput");
+      const labFormatInput = document.getElementById("labFormatInput");
+      const layoutPrefsInput = document.getElementById("layoutPrefsInput");
       const manualText = document.getElementById("manualText");
       const extraInstructions = document.getElementById("extraInstructions");
       const printProfileSelect = document.getElementById("printProfileSelect");
@@ -460,15 +484,16 @@
         lab_report: {
           display_name: "Lab / Technical Report",
           pdf_title_default: "Technical Lab Report",
-          needs_csv: true,
+          needs_csv: false,
           include_review: true,
           include_plots: true,
           writer_format: ["Objective", "Introduction", "Theoretical Background", "Apparatus & Procedure", "Results", "Discussion", "Conclusion", "References"],
           form_schema: {
             allow_csv: true,
-            require_csv: true,
+            require_csv: false,
             allow_review: true,
             allow_images: true,
+            require_any_of: ["csv", "images"],
             goal_min_len: 0,
             goal_placeholder: "e.g., Generate a submission-ready report.",
             manual_placeholder: "Paste manual / notes here...",
@@ -726,6 +751,9 @@
         const requireCsv = !!schema.require_csv;
         const allowReview = schema.allow_review !== false;
         const allowImages = !!schema.allow_images;
+        const requireAny = Array.isArray(schema.require_any_of)
+          ? schema.require_any_of.map((v) => String(v || "").toLowerCase()).filter(Boolean)
+          : [];
         const goalMinLen = Number(schema.goal_min_len || 0);
 
         const sections = Array.isArray(cfg.writer_format) ? cfg.writer_format : [];
@@ -736,6 +764,8 @@
           `Template: ${cfg.display_name}\n` +
           `CSV: ${requireCsv ? "Required" : (allowCsv ? "Optional" : "Not allowed")}\n` +
           `Images: ${allowImages ? "Allowed" : "Not allowed"}\n` +
+          `Data evidence: ${requireAny.length ? `Need at least one of ${requireAny.join(" / ")}` : "No additional requirement"}\n` +
+          `Layout override: provide an explicit section list in Preferred report layout to replace default headers.\n` +
           `Review section: ${allowReview ? "Available" : "Not available"}\n` +
           `Goal min length: ${goalMinLen} chars\n` +
           `Expected sections: ${sectionPreview}`;
@@ -743,24 +773,39 @@
         csvInput.required = requireCsv;
         if (requireCsv) {
           csvWrap.classList.remove("hidden");
-          csvLabel.innerHTML = '<span class="field-icon">▤</span>CSV (required for this template)';
-          csvNote.textContent = "This template requires a CSV upload.";
+          csvLabel.innerHTML = '<span class="field-icon">▤</span>Data file (required for this template)';
+          csvNote.textContent = "Provide structured data as file (CSV/TSV/Excel/JSON) or paste table text below.";
+          tableTextLabel.classList.remove("hidden");
+          tableTextInput.classList.remove("hidden");
+          tableTextNote.classList.remove("hidden");
+          tableTextNote.textContent = "Required for this template if no file is uploaded.";
         } else if (allowCsv) {
           csvWrap.classList.remove("hidden");
-          csvLabel.innerHTML = '<span class="field-icon">▤</span>CSV (optional)';
-          csvNote.textContent = cfg.include_plots
-            ? "Optional: upload CSV to include data analysis and plots."
-            : "Optional: upload CSV for additional context.";
+          csvLabel.innerHTML = '<span class="field-icon">▤</span>Data file (optional)';
+          if (requireAny.includes("csv") && requireAny.includes("images")) {
+            csvNote.textContent = "Provide at least one data source: structured data file/table text or lab images. Tabular data enables auto-analysis/plots.";
+          } else {
+            csvNote.textContent = cfg.include_plots
+              ? "Optional: upload tabular data (CSV/TSV/Excel/JSON) to include data analysis and plots."
+              : "Optional: upload tabular data for additional context.";
+          }
+          tableTextLabel.classList.remove("hidden");
+          tableTextInput.classList.remove("hidden");
+          tableTextNote.classList.remove("hidden");
+          tableTextNote.textContent = "Paste CSV/TSV rows or markdown table text. If both file and text are provided, file is used.";
         } else {
           // Hide and clear CSV when disallowed to avoid invalid submissions.
           csvWrap.classList.add("hidden");
           csvInput.value = "";
+          tableTextInput.value = "";
         }
 
         if (allowImages) {
           imageWrap.classList.remove("hidden");
           imageLabel.innerHTML = '<span class="field-icon">▧</span>Lab Images (optional)';
-          imageNote.textContent = "Optional: upload setup/results images to include in the PDF and reference in relevant sections.";
+          imageNote.textContent = (requireAny.includes("csv") && requireAny.includes("images"))
+            ? "Provide at least one data source: CSV or images. Images can be your primary lab evidence."
+            : "Optional: upload setup/results images to include in the PDF and reference in relevant sections.";
           imageInput.disabled = false;
           if (imageEntries.length === 0) readImageEntriesFromInput();
           renderImageMetadataFields();
@@ -790,6 +835,13 @@
 
         reportTitle.placeholder = `e.g., ${cfg.pdf_title_default || "Report"}`;
         goalInput.placeholder = schema.goal_placeholder || "e.g., Generate a submission-ready report.";
+        if (templateSelect.value === "lab_report") {
+          labFormatInput.placeholder = "e.g., Computer-based lab with screenshots of parameter setup, simulation runs, and result panes.";
+          layoutPrefsInput.placeholder = "e.g., Keep procedure concise, Results as numbered steps with image callouts, then a limitations checklist.";
+        } else {
+          labFormatInput.placeholder = "Optional context about source/material format.";
+          layoutPrefsInput.placeholder = "Optional structure preferences for how sections should be laid out.";
+        }
         manualText.placeholder = schema.manual_placeholder || "Paste manual / notes here...";
         extraInstructions.placeholder = schema.extra_placeholder || "Tone, formatting rules, etc.";
       }

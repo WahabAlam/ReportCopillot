@@ -10,6 +10,36 @@ from utils.llm import chat
 from utils.retrieval import extract_source_tags, select_relevant_chunks
 from utils.sections import split_by_headers, join_sections
 
+
+def _required_source_tag_count(template_cfg: dict, section_name: str) -> int:
+    quality_cfg = template_cfg.get("quality", {}) or {}
+    min_source_cfg = quality_cfg.get("min_source_tags_per_section", 0)
+    if isinstance(min_source_cfg, int):
+        return max(0, int(min_source_cfg))
+    if isinstance(min_source_cfg, dict):
+        try:
+            return max(0, int(min_source_cfg.get(section_name, 0)))
+        except Exception:
+            return 0
+    return 0
+
+
+def _build_coherence_context(sections: dict[str, str], order: list[str], *, max_chars: int = 1600) -> str:
+    rows: list[str] = []
+    used = 0
+    for name in order:
+        body = (sections.get(name) or "").strip()
+        if not body:
+            continue
+        compact = " ".join(body.split())
+        snippet = compact[:260]
+        row = f"{name}: {snippet}"
+        if used + len(row) > max_chars:
+            break
+        rows.append(row)
+        used += len(row)
+    return "\n".join(rows)
+
 def _build_system(template_cfg: dict) -> str:
     template_name = template_cfg.get("display_name", "Report")
     writer_format = template_cfg.get("writer_format", [])
@@ -123,20 +153,6 @@ def _sanitize_section_body(raw_text: str, section_name: str) -> str:
     return text.strip()
 
 
-def _ensure_section_source_tag(text: str, selected_chunks: list[dict]) -> str:
-    if extract_source_tags(text):
-        return text
-    if not selected_chunks:
-        return text
-    first_id = str(selected_chunks[0].get("id", "")).strip()
-    if not first_id:
-        return text
-    body = text.rstrip()
-    if not body:
-        body = "Source-aligned summary."
-    return f"{body} [{first_id}]"
-
-
 def _write_section(
     *,
     section_name: str,
@@ -150,6 +166,8 @@ def _write_section(
     extra_instructions: str,
     source_chunks: list[dict],
     source_top_k: int,
+    coherence_context: str = "",
+    current_section_body: str = "",
 ) -> tuple[str, list[str], list[str]]:
     section_images = _filter_images_for_section(writer_images, section_name)
     retrieval_query = (
@@ -189,10 +207,40 @@ SOURCE CHUNKS (with [S#] ids):
 
 EXTRA INSTRUCTIONS:
 {extra_instructions}
+
+EARLIER APPROVED SECTIONS (for coherence; do not repeat verbatim):
+{coherence_context or "(none yet)"}
+
+CURRENT SECTION DRAFT (revise if needed):
+{current_section_body or "(none)"}
 """
     body = _sanitize_section_body(chat(system, user), section_name)
-    body = _ensure_section_source_tag(body, selected_chunks)
     tags = extract_source_tags(body)
+
+    min_required_tags = _required_source_tag_count(template_cfg, section_name)
+    if min_required_tags > 0 and len(tags) < min_required_tags and selected_chunks:
+        revision_user = f"""Revise this section body to include at least {min_required_tags} inline [S#] source tag(s).
+
+SECTION HEADER:
+{section_name}
+
+CURRENT BODY:
+{body}
+
+ALLOWED SOURCE CHUNKS (with [S#] ids):
+{source_block or "(none)"}
+
+Rules:
+- Keep the same factual meaning and writing quality.
+- Do not invent facts.
+- Use only source tags that appear in ALLOWED SOURCE CHUNKS.
+- Return only the revised section body text.
+"""
+        revised = _sanitize_section_body(chat(system, revision_user), section_name)
+        if revised:
+            body = revised
+            tags = extract_source_tags(body)
+
     used_ids = [str(c.get("id", "")).strip() for c in selected_chunks if str(c.get("id", "")).strip()]
     return body, tags, used_ids
 
@@ -211,13 +259,23 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
         source_chunks = ctx.get("source_chunks") or []
         source_top_k = max(2, int(ctx.get("source_top_k_per_section", 6)))
         writer_images = _prepare_writer_images(image_assets)
+        rewrite_targets = [str(s).strip() for s in (ctx.get("rewrite_targets") or []) if str(s).strip()]
+        existing_sections = ctx.get("existing_sections") or {}
+        existing_sections = existing_sections if isinstance(existing_sections, dict) else {}
+        rewrite_mode = bool(rewrite_targets)
 
         if writer_format and source_chunks:
-            sections: dict[str, str] = {}
-            section_sources: dict[str, list[str]] = {}
+            target_set = {s for s in rewrite_targets if s in writer_format} if rewrite_mode else set(writer_format)
+            sections: dict[str, str] = {h: (existing_sections.get(h) or "").strip() for h in writer_format} if rewrite_mode else {}
             used_source_ids: set[str] = set()
+
             for section_name in writer_format:
-                body, tags, selected_ids = _write_section(
+                if section_name not in target_set:
+                    continue
+
+                prior_order = writer_format[: writer_format.index(section_name)]
+                coherence_context = _build_coherence_context(sections, prior_order)
+                body, _tags, selected_ids = _write_section(
                     section_name=section_name,
                     goal=goal,
                     template_cfg=template_cfg,
@@ -229,12 +287,20 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
                     extra_instructions=extra_instructions,
                     source_chunks=source_chunks,
                     source_top_k=source_top_k,
+                    coherence_context=coherence_context,
+                    current_section_body=(sections.get(section_name, "") if rewrite_mode else ""),
                 )
                 sections[section_name] = body
-                section_sources[section_name] = tags
+                # Keep current tag set in the section body to power traceability and quality checks.
                 used_source_ids.update(selected_ids)
 
             report_text = join_sections(sections, writer_format)
+            section_sources = {name: extract_source_tags(sections.get(name, "")) for name in writer_format}
+
+            source_ids_from_sections: set[str] = set()
+            for tags in section_sources.values():
+                source_ids_from_sections.update(tags)
+
             return AgentResult.success(
                 "writer",
                 job_id,
@@ -242,7 +308,8 @@ def run(*, job_id: str, ctx: dict) -> AgentResult:
                     "report_text": report_text,
                     "sections": sections,
                     "section_sources": section_sources,
-                    "source_chunks_used": sorted(used_source_ids),
+                    "source_chunks_used": sorted(source_ids_from_sections or used_source_ids),
+                    "sections_rewritten": sorted(target_set) if rewrite_mode else [],
                 },
             )
 

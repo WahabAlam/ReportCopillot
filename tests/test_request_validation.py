@@ -51,3 +51,28 @@ def test_save_image_uploads_keeps_only_valid_target_sections(monkeypatch):
     assert len(assets) == 1
     assert assets[0]["target_section"] == ""
     assert assets[0]["suggested_sections"]
+
+
+def test_validate_template_inputs_requires_one_of_csv_or_images():
+    with pytest.raises(HTTPException) as ex:
+        rv.validate_template_inputs(
+            template_key="lab_report",
+            template_cfg={
+                "form_schema": {
+                    "allow_csv": True,
+                    "allow_images": True,
+                    "require_any_of": ["csv", "images"],
+                }
+            },
+            has_csv=False,
+            has_images=False,
+            include_review_bool=False,
+            goal="ok",
+        )
+    assert ex.value.status_code == 400
+    assert "requires at least one data source" in str(ex.value.detail)
+
+
+def test_save_table_text_data_parses_csv_rows():
+    path = rv.save_table_text_data("time,temp\n0,20\n1,22\n")
+    assert path.endswith(".csv")

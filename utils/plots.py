@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import pandas as pd
 import matplotlib
+from utils.lab_data import read_tabular_file
 
 # Use a non-GUI backend to keep background worker and tests stable.
 matplotlib.use("Agg")
@@ -85,7 +86,7 @@ def generate_plots(csv_path: str, job_id: str) -> dict:
     Returns {caption: png_path}. Never raises; returns {} on failure.
     """
     try:
-        df = pd.read_csv(csv_path)
+        df = read_tabular_file(csv_path)
         if df.empty:
             return {}
         cols = list(df.columns)

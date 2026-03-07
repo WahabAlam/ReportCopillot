@@ -13,8 +13,13 @@ from agents.reviewer_agent import run as reviewer_run
 from agents.diagram_agent import run as diagram_run
 
 from schemas import AgentResult
-from utils.quality_gate import evaluate_report_quality, build_quality_fix_prompt
+from utils.quality_gate import (
+    evaluate_report_quality,
+    build_quality_fix_prompt,
+    select_quality_fix_sections,
+)
 from utils.retrieval import build_source_chunks
+from utils.sections import split_by_headers
 
 
 class CancelledError(RuntimeError):
@@ -199,8 +204,21 @@ def run_pipeline(
         if progress_cb:
             progress_cb("quality_fix", {"progress_pct": 88})
         fix_instructions = build_quality_fix_prompt(quality["issues"], template_cfg)
+        rewrite_targets = select_quality_fix_sections(quality["issues"], required_headers)
+        existing_sections = (
+            sections
+            if sections
+            else (split_by_headers(report_text, required_headers) if required_headers else {})
+        )
         ctx_q = dict(ctx2)
-        ctx_q["extra_instructions"] = (merged_instructions + "\n\n" + fix_instructions).strip()
+        ctx_q.update(
+            {
+                "extra_instructions": (merged_instructions + "\n\n" + fix_instructions).strip(),
+                "rewrite_targets": rewrite_targets,
+                "existing_sections": existing_sections,
+                "existing_section_sources": section_sources,
+            }
+        )
         t0 = perf_counter()
         wq: AgentResult = writer_run(job_id=job_id, ctx=ctx_q)
         timings_ms["writer_quality_fix"] = int((perf_counter() - t0) * 1000)

@@ -51,6 +51,8 @@ def queue_pipeline_job(
     payload: dict,
     retry_of: str | None = None,
     get_template_fn,
+    resolve_template_cfg_fn,
+    apply_layout_section_headers_fn,
     worker_callable,
     worker_path: str,
     default_print_profile: str,
@@ -66,8 +68,9 @@ def queue_pipeline_job(
     )
 
     template = payload["template"]
-    template_cfg = get_template_fn(template)
     csv_path = payload.get("csv_path")
+    template_cfg = resolve_template_cfg_fn(get_template_fn(template), has_csv=bool(csv_path))
+    template_cfg = apply_layout_section_headers_fn(template_cfg, payload.get("layout_section_headers") or [])
     if csv_path and not os.path.exists(csv_path):
         raise HTTPException(status_code=400, detail="Retry source CSV is missing on disk.")
     image_assets = payload.get("image_assets") or []

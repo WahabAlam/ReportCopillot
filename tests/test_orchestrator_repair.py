@@ -163,3 +163,76 @@ def test_passes_structured_research_and_data_highlights_to_writer(monkeypatch):
     assert observed["data_highlights"]["key_findings"] == ["k1"]
     assert out["research_facts"]["key_concepts"] == ["x"]
     assert out["data_highlights"]["calculation_snippets"] == ["c1"]
+
+
+def test_quality_fix_pass_rewrites_only_flagged_sections(monkeypatch):
+    writer_calls: list[dict] = []
+
+    monkeypatch.setattr(
+        orchestrator,
+        "research_run",
+        lambda *, job_id, ctx: AgentResult.success("research", job_id, payload={"theory_text": "theory"}),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "data_run",
+        lambda *, job_id, ctx: AgentResult.success("data", job_id, payload={"data_summary": {}, "data_highlights": {}}),
+    )
+
+    def fake_writer(*, job_id: str, ctx: dict):
+        writer_calls.append(ctx)
+        if len(writer_calls) == 1:
+            return AgentResult.success(
+                "writer",
+                job_id,
+                payload={
+                    "report_text": "Objective:\nStable objective.\n\nDiscussion:\nToo short.",
+                    "sections": {"Objective": "Stable objective.", "Discussion": "Too short."},
+                    "section_sources": {"Objective": ["S1"], "Discussion": []},
+                },
+            )
+        assert ctx.get("rewrite_targets") == ["Discussion"]
+        assert (ctx.get("existing_sections") or {}).get("Objective") == "Stable objective."
+        return AgentResult.success(
+            "writer",
+            job_id,
+            payload={
+                "report_text": "Objective:\nStable objective.\n\nDiscussion:\nExpanded discussion body [S2].",
+                "sections": {"Objective": "Stable objective.", "Discussion": "Expanded discussion body [S2]."},
+                "section_sources": {"Objective": ["S1"], "Discussion": ["S2"]},
+            },
+        )
+
+    quality_calls = {"count": 0}
+
+    def fake_quality(report_text: str, template_cfg: dict):
+        quality_calls["count"] += 1
+        if quality_calls["count"] == 1:
+            return {
+                "ok": False,
+                "issues": [{"kind": "too_short", "section": "Discussion", "detail": "Discussion too short."}],
+                "sections": {},
+            }
+        return {"ok": True, "issues": [], "sections": {}}
+
+    monkeypatch.setattr(orchestrator, "writer_run", fake_writer)
+    monkeypatch.setattr(orchestrator, "evaluate_report_quality", fake_quality)
+    monkeypatch.setattr(
+        orchestrator,
+        "diagram_run",
+        lambda *, job_id, ctx: AgentResult.success("diagram", job_id, payload={"figures_text": ""}),
+    )
+
+    out = orchestrator.run_pipeline(
+        job_id="job_quality_fix_001",
+        manual_text="manual source text",
+        goal="goal",
+        csv_path=None,
+        extra_instructions="",
+        template_cfg={"writer_format": ["Objective", "Discussion"]},
+        include_review=False,
+    )
+
+    assert len(writer_calls) == 2
+    assert out["report_sections"]["Objective"] == "Stable objective."
+    assert out["report_sections"]["Discussion"] == "Expanded discussion body [S2]."

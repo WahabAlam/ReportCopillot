@@ -104,6 +104,41 @@ def evaluate_report_quality(report_text: str, template_cfg: dict | None) -> dict
     }
 
 
+def select_quality_fix_sections(issues: list[dict[str, str]], required_headers: list[str]) -> list[str]:
+    # Prefer explicit section-level issues; fallback to a high-signal section for global issues.
+    ordered_headers = [h for h in (required_headers or []) if str(h).strip()]
+    if not ordered_headers:
+        return []
+
+    issue_sections: set[str] = set()
+    has_global_issue = False
+    for issue in (issues or []):
+        sec = str((issue or {}).get("section", "")).strip()
+        if sec in ordered_headers:
+            issue_sections.add(sec)
+        elif sec == "*" or not sec:
+            has_global_issue = True
+
+    if issue_sections:
+        return [h for h in ordered_headers if h in issue_sections]
+
+    if has_global_issue:
+        preferred = [
+            "Key Insights",
+            "Results",
+            "Discussion",
+            "Recommendations",
+            "Conclusion",
+            "Overview",
+        ]
+        for sec in preferred:
+            if sec in ordered_headers:
+                return [sec]
+        return [ordered_headers[0]]
+
+    return [ordered_headers[0]]
+
+
 def build_quality_fix_prompt(issues: list[dict[str, str]], template_cfg: dict | None) -> str:
     template_cfg = template_cfg or {}
     required = template_cfg.get("writer_format", []) or []

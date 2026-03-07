@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from utils.quality_gate import evaluate_report_quality, build_quality_fix_prompt
+from utils.quality_gate import (
+    evaluate_report_quality,
+    build_quality_fix_prompt,
+    select_quality_fix_sections,
+)
 
 
 def test_quality_gate_detects_missing_required_term():
@@ -48,3 +52,20 @@ def test_quality_gate_accepts_section_with_source_tags():
     report = "Results:\nObserved trend increases over time. [S2]"
     out = evaluate_report_quality(report, template_cfg)
     assert out["ok"] is True
+
+
+def test_select_quality_fix_sections_prefers_explicit_sections():
+    issues = [
+        {"kind": "too_short", "section": "Discussion", "detail": "short"},
+        {"kind": "missing_term", "section": "Results", "detail": "missing term"},
+    ]
+    headers = ["Objective", "Results", "Discussion", "Conclusion"]
+    out = select_quality_fix_sections(issues, headers)
+    assert out == ["Results", "Discussion"]
+
+
+def test_select_quality_fix_sections_handles_global_issue():
+    issues = [{"kind": "missing_global_term", "section": "*", "detail": "trend"}]
+    headers = ["Objective", "Results", "Discussion"]
+    out = select_quality_fix_sections(issues, headers)
+    assert out == ["Results"]

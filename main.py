@@ -12,7 +12,7 @@ import threading
 from collections import defaultdict, deque
 from pathlib import Path
 
-from templates import get_template, DEFAULT_TEMPLATE, TEMPLATES
+from templates import get_template, DEFAULT_TEMPLATE, TEMPLATES, resolve_template_cfg, apply_layout_section_headers
 from orchestrator import run_pipeline, CancelledError
 from agents.writer_agent import run as writer_run
 from utils.files import save_upload
@@ -37,6 +37,7 @@ from utils.sections import split_by_headers, join_sections
 from utils.llm import chat
 from utils.request_validation import (
     validate_csv,
+    save_table_text_data,
     save_image_uploads,
     validate_text_lengths,
     validate_template_inputs,
@@ -83,6 +84,7 @@ RATE_LIMIT_LOCK = threading.Lock()
 USE_RQ_QUEUE = os.getenv("USE_RQ_QUEUE", "0") == "1"
 MAX_IMAGE_UPLOADS = int(os.getenv("MAX_IMAGE_UPLOADS", "24"))
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+TABULAR_DATA_EXTENSIONS = {".csv", ".tsv", ".xlsx", ".xls", ".json"}
 
 app = FastAPI(title="Report Copilot (Template-Based)")
 
@@ -321,6 +323,8 @@ def _queue_pipeline_job(
         payload=payload,
         retry_of=retry_of,
         get_template_fn=get_template,
+        resolve_template_cfg_fn=resolve_template_cfg,
+        apply_layout_section_headers_fn=apply_layout_section_headers,
         worker_callable=_execute_job,
         worker_path="main._execute_job",
         default_print_profile=DEFAULT_PRINT_PROFILE,
@@ -380,10 +384,13 @@ async def run(
     date: str = Form(""),
 
     goal: str = Form("Generate a complete report."),
+    lab_format_description: str = Form(""),
+    layout_preferences: str = Form(""),
     extra_instructions: str = Form(""),
     print_profile: str = Form(DEFAULT_PRINT_PROFILE),
 
     data_csv: UploadFile | None = File(None),
+    data_table_text: str = Form(""),
     lab_images: list[UploadFile] | None = File(None),
     lab_image_titles: list[str] | None = Form(None),
     lab_image_captions: list[str] | None = Form(None),
@@ -404,9 +411,12 @@ async def run(
         group=group,
         date=date,
         goal=goal,
+        lab_format_description=lab_format_description,
+        layout_preferences=layout_preferences,
         extra_instructions=extra_instructions,
         print_profile=print_profile,
         data_csv=data_csv,
+        data_table_text=data_table_text,
         lab_images=lab_images,
         lab_image_titles=lab_image_titles,
         lab_image_captions=lab_image_captions,
@@ -416,6 +426,7 @@ async def run(
         get_template_fn=get_template,
         normalize_print_profile_fn=_normalize_print_profile,
         save_upload_fn=save_upload,
+        save_table_text_fn=save_table_text_data,
         pdf_to_text_fn=pdf_to_text,
         validate_template_inputs_fn=validate_template_inputs,
         validate_csv_fn=validate_csv,
@@ -425,6 +436,7 @@ async def run(
         build_job_summary_fn=_build_job_summary,
         max_image_uploads=MAX_IMAGE_UPLOADS,
         image_extensions=IMAGE_EXTENSIONS,
+        tabular_data_extensions=TABULAR_DATA_EXTENSIONS,
     )
 
 

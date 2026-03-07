@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-import pandas as pd
 from fastapi import HTTPException, UploadFile
 
 from utils.files import save_upload
+from utils.lab_data import read_tabular_file, save_table_text_as_csv
 
 
 def validate_csv(csv_path: str) -> dict:
     try:
-        df = pd.read_csv(csv_path)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Could not read CSV. Make sure it is a valid .csv file.")
+        df = read_tabular_file(csv_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not read tabular data file. Supported formats: CSV, TSV, Excel (.xlsx/.xls), JSON. "
+                f"Details: {type(e).__name__}: {e}"
+            ),
+        )
 
     if df.shape[0] < 2:
         raise HTTPException(status_code=400, detail="CSV must have at least 2 rows of data.")
@@ -30,6 +35,19 @@ def validate_csv(csv_path: str) -> dict:
         "numeric_columns": numeric_cols,
         "preview_head": df.head(5).to_dict(orient="records"),
     }
+
+
+def save_table_text_data(table_text: str) -> str:
+    text = (table_text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Table text input is empty.")
+    try:
+        return save_table_text_as_csv(text)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not parse table text. Expected CSV/TSV/markdown-style table. Details: {type(e).__name__}: {e}",
+        )
 
 
 def guess_image_sections(filename: str, template_key: str) -> list[str]:
@@ -109,6 +127,8 @@ def validate_text_lengths(
     date: str,
     goal: str,
     extra_instructions: str,
+    lab_format_description: str,
+    layout_preferences: str,
     final_manual_text: str,
 ) -> None:
     limits = {
@@ -119,6 +139,8 @@ def validate_text_lengths(
         "date": (date, 120),
         "goal": (goal, 3000),
         "extra_instructions": (extra_instructions, 5000),
+        "lab_format_description": (lab_format_description, 2500),
+        "layout_preferences": (layout_preferences, 2500),
         "manual_text": (final_manual_text, 400000),
     }
     for field, (value, max_len) in limits.items():
@@ -140,16 +162,29 @@ def validate_template_inputs(
     require_csv = bool(schema.get("require_csv", template_cfg.get("needs_csv", False)))
     allow_review = bool(schema.get("allow_review", template_cfg.get("include_review", False)))
     allow_images = bool(schema.get("allow_images", False))
+    require_any_of = [str(v).strip().lower() for v in (schema.get("require_any_of") or []) if str(v).strip()]
     goal_min_len = int(schema.get("goal_min_len", 0))
 
     if require_csv and not has_csv:
-        raise HTTPException(status_code=400, detail=f"Template '{template_key}' requires a CSV upload.")
+        raise HTTPException(status_code=400, detail=f"Template '{template_key}' requires tabular data input.")
     if not allow_csv and has_csv:
-        raise HTTPException(status_code=400, detail=f"Template '{template_key}' does not accept CSV uploads.")
+        raise HTTPException(status_code=400, detail=f"Template '{template_key}' does not accept tabular data input.")
     if not allow_images and has_images:
         raise HTTPException(status_code=400, detail=f"Template '{template_key}' does not accept image uploads.")
     if include_review_bool and not allow_review:
         raise HTTPException(status_code=400, detail=f"Template '{template_key}' does not support reviewer feedback.")
+
+    if require_any_of:
+        source_flags = {
+            "csv": bool(has_csv),
+            "images": bool(has_images),
+        }
+        if not any(source_flags.get(src, False) for src in require_any_of):
+            readable = " or ".join([src.upper() if src == "csv" else src for src in require_any_of])
+            raise HTTPException(
+                status_code=400,
+                detail=f"Template '{template_key}' requires at least one data source: {readable}.",
+            )
 
     if len((goal or "").strip()) < goal_min_len:
         raise HTTPException(

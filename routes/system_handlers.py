@@ -36,6 +36,7 @@ def template_configs_payload(
                 "require_csv": bool(schema.get("require_csv", cfg.get("needs_csv", False))),
                 "allow_review": bool(schema.get("allow_review", cfg.get("include_review", False))),
                 "allow_images": bool(schema.get("allow_images", False)),
+                "require_any_of": [str(v) for v in (schema.get("require_any_of") or []) if str(v).strip()],
                 "goal_min_len": int(schema.get("goal_min_len", 0)),
                 "goal_placeholder": schema.get("goal_placeholder", ""),
                 "manual_placeholder": schema.get("manual_placeholder", ""),
